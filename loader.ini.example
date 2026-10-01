@@ -1,0 +1,3 @@
+[loader]
+; Copy this file to loader.ini and set the full path, or use --game.
+game=D:\Game\Hypergryph Launcher\games\Endfield Game\Endfield.exe

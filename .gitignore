@@ -1,0 +1,5 @@
+/build/
+/dist/
+/artifacts/
+/third_party/minhook/
+*.user
