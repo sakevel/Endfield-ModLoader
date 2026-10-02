@@ -2,6 +2,7 @@
 #include "il2cpp.hpp"
 #include "lua_codec.hpp"
 #include "manifest.hpp"
+#include "mod_services.hpp"
 #include "win_util.hpp"
 #include <MinHook.h>
 #include <chrono>
@@ -25,6 +26,7 @@ struct Runtime {
     ManagedMethod load, utf8_encoding, decode, encode;
     std::vector<std::unique_ptr<Mod>> mods;
     std::vector<Transform> transforms;
+    ModServices services;
     std::mutex log_mutex;
     std::filesystem::path log_path;
     void* (*original)(void*, void*, const void*) = nullptr;
@@ -60,6 +62,26 @@ void write_source(void* writer, const char* bytes, size_t length) {
     if (out->bytes.find('\0') != std::string::npos) out->valid = false;
 }
 void* patched_load(void* object, void* path, const void* method) {
+    // Reserved virtual modules must be handled BEFORE the game's VFS lookup.
+    // This is a public loader service, independent of any menu mod.
+    try {
+        auto name = rt->api.string(path, 4096);
+        if (name.ends_with(".lua")) name.resize(name.size() - 4);
+        if (name.starts_with("ZML/")) {
+            auto source = rt->services.module(name);
+            if (name.starts_with("ZML/Report/") && source == "return {ok=true}") rt->log("lua-event", name.substr(11));
+            auto text = rt->api.make_string(pack_lua({source, Envelope::xxtea_base64}));
+            ManagedRoot text_root(rt->api, text);
+            auto encoding = rt->api.call(rt->utf8_encoding);
+            ManagedRoot encoding_root(rt->api, encoding);
+            void* args[]{text};
+            return rt->api.call(rt->encode, encoding, args);
+        }
+    } catch (const std::exception& error) {
+        rt->log("runtime", std::string("Loader service failed: ") + error.what());
+        // Do not pass a reserved virtual path into the game's VFS after failure.
+        try { if (rt->api.string(path, 4096).starts_with("ZML/")) return nullptr; } catch (...) {}
+    }
     void* bytes = rt->original(object, path, method);
     if (!bytes) return bytes;
     try {
@@ -111,11 +133,13 @@ void load_mods(const std::filesystem::path& root) {
         mod->info = std::move(manifest);
         mod->directory = utf8(mod->info.directory.wstring());
         auto state = state_root() / L"mods" / path_utf8(mod->info.id);
+        if (!inside(state_root(), state)) throw std::runtime_error("Mod state escapes loader directory");
         std::filesystem::create_directories(state);
         mod->state = utf8(state.wstring());
         mod->host = {sizeof(ZmlHost), 1, mod.get(), mod->directory.c_str(), mod->state.c_str(), &mod_log, &register_transform};
         size_t checkpoint = rt->transforms.size();
         try {
+            auto record = prepare_record(mod->info, state);
             mod->dll = LoadLibraryExW(mod->info.library.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
             if (!mod->dll) throw std::runtime_error("LoadLibraryExW failed: " + std::to_string(GetLastError()));
             auto entry = reinterpret_cast<ZmlPluginEntry>(GetProcAddress(mod->dll, "ZML_PluginV1"));
@@ -125,6 +149,7 @@ void load_mods(const std::filesystem::path& root) {
             mod->initializing = true;
             if (!plugin->start(&mod->host)) throw std::runtime_error("Plugin initialization rejected");
             mod->initializing = false;
+            rt->services.publish(std::move(record));
             rt->log(mod->info.id, "Loaded " + utf8(mod->info.library.filename().wstring()));
         } catch (const std::exception& error) {
             mod->initializing = false;
@@ -143,7 +168,7 @@ DWORD WINAPI initialize(void*) {
         rt = new Runtime;
         std::filesystem::create_directories(state_root());
         rt->log_path = state_root() / L"runtime.log";
-        rt->log("runtime", "ZML 0.1.0 loaded; independent runtime waiting for GameAssembly");
+        rt->log("runtime", "ZML 0.2.0 loaded; independent runtime waiting for GameAssembly");
         auto deadline = GetTickCount64() + 120000;
         while (!GetModuleHandleW(L"GameAssembly.dll")) {
             if (GetTickCount64() >= deadline) throw std::runtime_error("GameAssembly wait timed out");
@@ -169,8 +194,13 @@ DWORD WINAPI initialize(void*) {
             if (GetTickCount64() >= deadline) throw std::runtime_error("Lua/Encoding metadata contract timed out");
             Sleep(250);
         } while (true);
-        load_mods(module_path(instance).parent_path());
-        if (rt->transforms.empty()) { rt->log("runtime", "No active transforms; no hooks installed"); return 0; }
+        auto root = module_path(instance).parent_path();
+        auto api_file = root / L"lua" / L"zml.lua";
+        if (!inside(root, api_file) || std::filesystem::file_size(api_file) > 128 * 1024) throw std::runtime_error("Loader Lua API asset missing/invalid");
+        std::ifstream api_stream(api_file, std::ios::binary);
+        if (!api_stream) throw std::runtime_error("Cannot read loader Lua API");
+        rt->services.set_api({std::istreambuf_iterator<char>(api_stream), {}});
+        load_mods(root);
         if (MH_Initialize() != MH_OK) throw std::runtime_error("MinHook initialization failed (another loader may be present)");
         auto created = MH_CreateHook(rt->load.entry, reinterpret_cast<void*>(&patched_load), reinterpret_cast<void**>(&rt->original));
         if (created != MH_OK) throw std::runtime_error("LoadLua hook creation failed");

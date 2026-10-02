@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(ZML VERSION 0.1.0 LANGUAGES C CXX)
+project(ZML VERSION 0.2.0 LANGUAGES C CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "Windows x64 is required")
 endif()
@@ -13,31 +13,45 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minhook/CMakeLists.txt")
   message(FATAL_ERROR "Run tools/bootstrap.ps1 to obtain the pinned upstream MinHook")
 endif()
 add_subdirectory(third_party/minhook EXCLUDE_FROM_ALL)
-add_library(zml_common STATIC src/lua_codec.cpp src/manifest.cpp)
+add_library(zml_common STATIC src/lua_codec.cpp src/manifest.cpp src/mod_services.cpp)
 target_include_directories(zml_common PUBLIC include src)
 target_link_libraries(zml_common PUBLIC crypt32)
 add_executable(ZML src/launcher.cpp)
 target_link_libraries(ZML PRIVATE zml_common)
 add_library(ZMLRuntime SHARED src/runtime.cpp src/il2cpp.cpp)
 target_link_libraries(ZMLRuntime PRIVATE zml_common minhook)
-add_library(CustomMenu SHARED mods/custom-menu/mod.cpp)
-target_include_directories(CustomMenu PRIVATE include mods/custom-menu)
-set_target_properties(CustomMenu PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/package/$<CONFIG>/mods/custom-menu")
 add_custom_target(package ALL
-  COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/mods/custom-menu" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/mods/custom-menu"
-  COMMAND ${CMAKE_COMMAND} -E rm -f "${CMAKE_BINARY_DIR}/package/$<CONFIG>/mods/custom-menu/mod.cpp" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/mods/custom-menu/patch.hpp"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/package/$<CONFIG>/lua"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/lua/zml.lua" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/lua/zml.lua"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/README.md" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/README.md"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/loader.ini.example" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/loader.ini.example"
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/package/$<CONFIG>/docs"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/docs/VALIDATION.md" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/docs/VALIDATION.md"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/docs/MOD_API.md" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/docs/MOD_API.md"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minhook/LICENSE.txt" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/MinHook-LICENSE.txt"
-  DEPENDS ZML ZMLRuntime CustomMenu)
+  DEPENDS ZML ZMLRuntime)
 enable_testing()
+add_test(NAME mod_install COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests/install_mod_tests.ps1" -Installer "${CMAKE_CURRENT_SOURCE_DIR}/tools/install-mod.ps1")
+add_executable(DecodeLua EXCLUDE_FROM_ALL tools/decode_lua.cpp)
+target_link_libraries(DecodeLua PRIVATE zml_common)
+set_target_properties(DecodeLua PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools/$<CONFIG>")
 add_executable(CoreTests tests/core_tests.cpp)
 set_target_properties(CoreTests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/$<CONFIG>")
 target_link_libraries(CoreTests PRIVATE zml_common)
-target_include_directories(CoreTests PRIVATE mods/custom-menu)
 add_test(NAME core COMMAND CoreTests)
+add_executable(ServicesTests tests/services_tests.cpp)
+target_link_libraries(ServicesTests PRIVATE zml_common)
+target_compile_definitions(ServicesTests PRIVATE ZML_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(ServicesTests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/$<CONFIG>")
+add_test(NAME mod_services COMMAND ServicesTests)
+set(ZML_LUPA_PATH "" CACHE PATH "Optional existing Lupa installation for Lua behavioral tests")
+if(ZML_LUPA_PATH)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME lua_behavior COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/lua_api_tests.py"
+    --lupa-dir "${ZML_LUPA_PATH}" --services "$<TARGET_FILE:ServicesTests>")
+  set_tests_properties(lua_behavior PROPERTIES DEPENDS mod_services TIMEOUT 30)
+endif()
 add_executable(InjectionFixture tests/injection_fixture.cpp)
 set_target_properties(InjectionFixture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/$<CONFIG>")
 add_test(NAME launcher_list COMMAND ZML --list)

@@ -1,6 +1,5 @@
 #include "lua_codec.hpp"
 #include "manifest.hpp"
-#include "patch.hpp"
 #include <Windows.h>
 #include <filesystem>
 #include <fstream>
@@ -29,18 +28,6 @@ int main(int argc, char** argv) {
         for (const char* bad : {"AB==", "a===", "AAA="}) rejected([&] { unpack_lua(bad); }, "Malformed data rejected");
         rejected([&] { unpack_lua(std::string("return 1\0", 9)); }, "Binary NUL rejected");
         rejected([&] { unpack_lua(std::string(1024 * 1024 + 1, 'A')); }, "Oversized payload rejected");
-        std::string base = "local RIGHT_BTN_ORDER = {}\ntable.sort(RIGHT_BTN_ORDER)\nself:BuildData()\nWatchCtrl._RelayoutRightList\nPhaseManager:OpenPhase(data.phaseId, data.openPhaseArg)\nHL.Commit(WatchCtrl)";
-        std::string result = "untouched";
-        check(menu_mod::edit(base, "local ZMLCustomMenu = {}", result), "Current contract patched");
-        check(result.find("RIGHT_BTN_ORDER[#RIGHT_BTN_ORDER + 1] = 93") != result.npos, "Slot registered");
-        check(result.find("_G.ZMLCustomMenu.mount(self)") != result.npos, "Attachment inserted before snapshot");
-        auto patched = result;
-        check(!menu_mod::edit(patched, "extension", result) && result == patched, "No duplicate patch");
-        for (auto anchor : {"self:BuildData()", "HL.Commit(WatchCtrl)", "table.sort(RIGHT_BTN_ORDER)"}) {
-            auto broken = base; broken.erase(broken.find(anchor), std::string_view(anchor).size());
-            check(!menu_mod::edit(broken, "extension", result) && result == patched, "Missing anchor is atomic");
-            check(!menu_mod::edit(base + anchor, "extension", result) && result == patched, "Ambiguous anchor is atomic");
-        }
         auto folder = std::filesystem::temp_directory_path() / ("zml-tests-" + std::to_string(GetCurrentProcessId()));
         std::filesystem::create_directories(folder / "example");
         struct Cleanup { std::filesystem::path p; ~Cleanup() { std::error_code e; std::filesystem::remove_all(p, e); } } clean{folder};
@@ -64,13 +51,9 @@ int main(int argc, char** argv) {
             auto decoded = unpack_lua(raw);
             check(decoded.text == current, "Current installed client's resource decoded exactly");
             check(pack_lua(decoded) == raw, "Current installed client's bytes reproduced exactly");
-            auto extension = argc > 3 ? read(argv[3]) : "local ZMLCustomMenu = {}";
-            check(menu_mod::edit(decoded.text, extension, result), "Real current WatchCtrl accepted");
-            decoded.text = result;
-            check(unpack_lua(pack_lua(decoded)).text == result, "Real patched source roundtrip");
-            if (argc > 4) std::ofstream(argv[4], std::ios::binary) << result;
+
         }
-        std::cout << "PASS: codec, patch atomicity, manifests and optional real-client fixtures\n";
+        std::cout << "PASS: codec, manifests and optional real-client fixtures\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }
