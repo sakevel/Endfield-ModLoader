@@ -18,6 +18,7 @@ target_include_directories(zml_common PUBLIC include src)
 target_link_libraries(zml_common PUBLIC crypt32)
 add_executable(ZML src/launcher.cpp)
 target_link_libraries(ZML PRIVATE zml_common)
+add_library(ZMLNativeLaunch SHARED src/native_launch.cpp)
 add_library(ZMLRuntime SHARED src/runtime.cpp src/il2cpp.cpp)
 target_link_libraries(ZMLRuntime PRIVATE zml_common minhook)
 add_custom_target(package ALL
@@ -61,3 +62,10 @@ set_target_properties(RejectedRuntime PROPERTIES OUTPUT_NAME ZMLRuntime RUNTIME_
 add_test(NAME injection_e2e COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/injection_e2e.ps1"
   -Launcher "$<TARGET_FILE:ZML>" -Fixture "$<TARGET_FILE:InjectionFixture>" -Rejected "$<TARGET_FILE:RejectedRuntime>")
 set_tests_properties(injection_e2e PROPERTIES DEPENDS core TIMEOUT 70)
+
+add_test(NAME installer COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+  "${CMAKE_CURRENT_SOURCE_DIR}/tools/build-installer.ps1" -SkipFrameworkBuild)
+set_tests_properties(installer PROPERTIES DEPENDS core TIMEOUT 120)
+
+add_executable(NativeLaunchFixture tests/native_launch_fixture.cpp)
+set_target_properties(NativeLaunchFixture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/$<CONFIG>")

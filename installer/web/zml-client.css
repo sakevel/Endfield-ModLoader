@@ -1,0 +1,105 @@
+/* Observed launcher header/popover/dialog tokens. Scoped own rules only. */
+#zml-toggle, #zml-layer, #zml-launch-option, #zml-launch-status {
+  --zml-surface: rgb(24, 23, 26);
+  --zml-surface-glass: rgba(24, 23, 26, .95);
+  --zml-border: rgba(255, 255, 255, .10);
+  --zml-text: #fff;
+  --zml-muted: rgba(255, 255, 255, .50);
+  --zml-hover: rgba(255, 255, 255, .15);
+  font-family: inherit; box-sizing: border-box; -webkit-app-region: no-drag;
+}
+/* Opt-in classes, removed on game switch; never replace host listeners or children. */
+#root .zml-host-width {width: calc(var(--zml-native-width) + 52px) !important; max-width: calc(100vw - 80px);}
+#root .zml-host-pill {gap: 8px;}
+#root .zml-host-dx {width: calc(100% - 104px); right: auto;}
+#zml-toggle {
+  position: relative; flex: none; display: flex; align-items: center; justify-content: center;
+  width: 52px; height: 52px; padding: 0; color: var(--zml-text);
+  border: 0; border-radius: 100px; background: rgba(24,23,26,.78);
+  cursor: pointer; transition: background .2s;
+}
+#zml-launch-option {position: absolute; right: 8px; display: flex; align-items: center; gap: 6px; height: 22px; font-size: 12px; line-height: 14px; color: #fff; cursor: pointer; text-shadow: 0 0 6px rgba(0,0,0,.90), 0 1px rgba(0,0,0,.5); white-space: nowrap;}
+#zml-launch-status {position: absolute; right: 0; bottom: calc(100% + 10px); width: 300px; font-size: 12px; color: #fff; text-align: right; line-height: 18px; text-shadow: 0 1px 5px #000; pointer-events: none;}
+#zml-launch-status:empty {display: none;}
+#zml-launch-status.zml-error {color: #f96f68;}
+#zml-toggle:hover, #zml-toggle[aria-expanded="true"] {background: rgba(24,23,26,.95);}
+#zml-toggle svg, #zml-panel .zml-fallback svg {width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5;}
+#zml-layer {position: fixed; inset: 0; z-index: 1000; display: flex; align-items: stretch; justify-content: flex-end; padding: 12px; border-radius: 24px; background: rgba(0,0,0,.25);}
+#zml-layer[hidden], #zml-panel[hidden], #zml-toggle[hidden], #zml-launch-option[hidden], #zml-launch-status[hidden], #zml-panel [hidden] {display: none !important;}
+#zml-panel {
+  display: flex; flex-direction: column; width: 590px; max-width: 100%; height: 100%;
+  padding: 24px; border: 1px solid var(--zml-border); border-radius: 16px;
+  background: var(--zml-surface-glass); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  color: var(--zml-text); box-shadow: 0 2px 8px rgba(0,0,0,.65);
+  font-size: 14px; line-height: 1.5; text-align: left; box-sizing: border-box;
+  animation: zml-slide-in .22s ease-out;
+}
+@keyframes zml-slide-in {from {transform: translateX(100%); opacity: 0;} to {transform: translateX(0); opacity: 1;}}
+@media (prefers-reduced-motion: reduce) {#zml-panel {animation: none;}}
+#zml-panel * {box-sizing: border-box;}
+#zml-panel button, #zml-panel input {font: inherit; color: inherit;}
+#zml-panel button {height: 36px; padding: 0 16px; border: 0; border-radius: 100px; background: rgba(255,255,255,.10); color: #fff; cursor: pointer; white-space: nowrap; transition: background .2s;}
+#zml-panel button:hover {background: rgba(255,255,255,.20);}
+#zml-panel button:disabled {opacity: .35; cursor: wait;}
+#zml-panel header {display: flex; justify-content: space-between; align-items: flex-start; flex: none; margin-bottom: 20px;}
+#zml-panel h2 {font-size: 18px; font-weight: 500; line-height: 26px; margin: 0;}
+#zml-panel header p {margin: 4px 0 0; font-size: 13px; color: var(--zml-muted);}
+#zml-panel .zml-heading-dot {margin: 0 8px;}
+#zml-panel .zml-close {width: 24px; height: 24px; padding: 4px; margin: -4px -4px 0 0; background: transparent; border-radius: 50%; color: var(--zml-muted);}
+#zml-panel .zml-close:hover {color: rgba(255,255,255,.80); background: transparent;}
+#zml-panel .zml-close svg {width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round;}
+#zml-panel .zml-tools {display: flex; gap: 10px; align-items: center; flex: none;}
+#zml-panel .zml-tools input {min-width: 60px; width: 100%; flex: 1; height: 36px; padding: 0 14px; border: 1px solid var(--zml-border); border-radius: 8px; background: rgba(255,255,255,.05); outline: none; font-size: 13px;}
+#zml-panel .zml-tools input::placeholder {color: var(--zml-muted);}
+#zml-panel .zml-tools input:focus {border-color: rgba(255,255,255,.35);}
+#zml-panel .zml-filters {display: flex; gap: 6px; flex: none; margin: 16px 0 8px;}
+#zml-panel .zml-filters button {height: 30px; padding: 0 12px; font-size: 12px; background: transparent; color: var(--zml-muted);}
+#zml-panel .zml-filters button:hover {background: rgba(255,255,255,.10); color: #fff;}
+#zml-panel .zml-filters button[aria-pressed="true"] {background: rgba(255,255,255,.15); color: #fff;}
+#zml-panel .zml-list {flex: 1; min-height: 48px; overflow: auto; padding: 0 4px 0 0; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.25) transparent;}
+#zml-panel .zml-list::-webkit-scrollbar {width: 4px;}
+#zml-panel .zml-list::-webkit-scrollbar-thumb {background: rgba(255,255,255,.25); border-radius: 100px;}
+#zml-panel .zml-mod {display: grid; grid-template-columns: minmax(0,1fr) 32px; align-items: center; border-radius: 8px; margin-bottom: 2px; transition: background .2s;}
+#zml-panel .zml-mod:hover {background: rgba(255,255,255,.06);}
+#zml-panel .zml-summary {display: flex; gap: 10px; align-items: center; padding: 8px; height: 58px; background: transparent; border-radius: 8px; text-align: left; width: 100%;}
+#zml-panel .zml-summary:hover, #zml-panel .zml-summary[aria-expanded="true"] {background: rgba(255,255,255,.05);}
+#zml-panel .zml-icon {width: 36px; height: 36px; object-fit: contain; flex: none; border-radius: 6px; background: rgba(255,255,255,.06);}
+#zml-panel .zml-fallback {display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.75);}
+#zml-panel .zml-fallback svg {width: 24px; height: 24px;}
+#zml-panel .zml-info {flex: 1; min-width: 0; display: block;}
+#zml-panel .zml-title {display: flex; align-items: baseline; gap: 8px; min-width: 0;}
+#zml-panel .zml-title b {font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+#zml-panel .zml-version {font-size: 11px; color: rgba(255,255,255,.55); flex: none;}
+#zml-panel .zml-description {display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--zml-muted);}
+#zml-panel .zml-tags-inline {color: rgba(255,255,255,.70);}
+#zml-panel .zml-detail {grid-column: 1 / -1; margin: 0 10px 8px 54px; padding: 10px 0 4px; border-top: 1px solid var(--zml-border); overflow-wrap: anywhere;}
+#zml-panel .zml-author, #zml-panel .zml-deps {font-size: 11px; color: var(--zml-muted);}
+#zml-panel p {margin: 0 0 8px; font-size: 13px; color: rgba(255,255,255,.75); white-space: pre-wrap;}
+#zml-panel .zml-tags {display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;}
+#zml-panel .zml-tags span {padding: 1px 7px; font-size: 11px; color: rgba(255,255,255,.55); border-radius: 4px; background: rgba(255,255,255,.06);}
+#zml-panel .zml-deps {margin-top: 6px;}
+#zml-panel .zml-switch {position: relative; display: flex; gap: 8px; align-items: center; flex: none; margin-top: 2px; cursor: pointer;}
+#zml-panel .zml-switch input , #zml-launch-option input {position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1;}
+#zml-panel .zml-check-mark , #zml-launch-option .zml-check-mark {width: 16px; height: 16px; flex: none; border-radius: 4px; background: rgba(255,255,255,.25); transition: background .15s;}
+#zml-panel .zml-check-mark svg , #zml-launch-option .zml-check-mark svg {width: 16px; height: 16px; fill: none; stroke: rgb(24,23,26); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: 0;}
+#zml-panel .zml-switch input:checked+.zml-check-mark , #zml-launch-option input:checked+.zml-check-mark {background: rgba(255,255,255,.75);}
+#zml-panel .zml-switch input:checked+.zml-check-mark svg , #zml-launch-option input:checked+.zml-check-mark svg {opacity: 1;}
+#zml-panel .zml-switch:hover .zml-check-mark , #zml-launch-option:hover .zml-check-mark {background: rgba(255,255,255,.55);}
+#zml-panel .zml-switch input:checked:hover+.zml-check-mark , #zml-launch-option input:checked:hover+.zml-check-mark {background: #fff;}
+#zml-panel .zml-check-text {font-size: 12px; color: rgba(255,255,255,.75);}
+#zml-panel .zml-switch input:disabled~span , #zml-launch-option input:disabled~span {opacity: .35;}
+#zml-toggle:focus-visible, #zml-panel button:focus-visible, #zml-panel .zml-switch input:focus-visible+.zml-check-mark , #zml-launch-option input:focus-visible+.zml-check-mark {outline: 2px solid rgba(255,255,255,.75); outline-offset: 3px;}
+#zml-panel .zml-disabled .zml-icon {opacity: .45;}
+#zml-panel .zml-empty {padding: 32px 16px; text-align: center; color: var(--zml-muted);}
+#zml-panel .zml-status {flex: none; min-height: 34px; padding: 10px 0 0; font-size: 12px; color: rgba(255,255,255,.65); white-space: pre-wrap; max-height: 76px; overflow: auto;}
+#zml-panel .zml-status:empty {display: none;}
+#zml-panel .zml-error {color: #f96f68;}
+#zml-panel footer {display: flex; align-items: center; justify-content: space-between; flex: none; gap: 16px; padding-top: 16px; margin-top: 8px; border-top: 1px solid var(--zml-border);}
+#zml-panel footer small {font-size: 11px; line-height: 18px; color: var(--zml-muted);}
+@media (max-width: 620px), (max-height: 540px) {
+  #zml-layer {padding: 8px;}
+  #zml-panel {padding: 18px;}
+  #zml-panel header {margin-bottom: 12px;}
+  #zml-panel .zml-tools {gap: 6px;}
+  #zml-panel .zml-tools button {padding: 0 10px; font-size: 12px;}
+}
