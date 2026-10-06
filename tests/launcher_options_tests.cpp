@@ -13,6 +13,13 @@ public:
 protected:
     void wheelEvent(QWheelEvent* event) override {event->ignore();}
 };
+// Keep the public layout virtual slot; this vendor omits the base widget()
+// Return null for layout objects
+class TestBoxLayout final:public QHBoxLayout {
+public:
+    explicit TestBoxLayout(QWidget* parent):QHBoxLayout(parent){}
+    QWidget* widget() override {return nullptr;}
+};
 int main(int argc,char** argv) {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
     try {
@@ -24,7 +31,7 @@ int main(int argc,char** argv) {
         auto* absOriginal=new OptionsButton(QStringLiteral("卸载游戏"),absolute);absOriginal->setObjectName(QStringLiteral("btnUninstallGame"));absOriginal->setGeometry(30,200,120,32);
         absolute->setStyleSheet(QStringLiteral("QPushButton#btnUninstallGame { background: #313131; color: white; border-radius: 8px; }"));
         absOriginal->setIcon(absOriginal->style()->standardIcon(QStyle::SP_TrashIcon,nullptr,absOriginal));absOriginal->setIconSize(QSize(16,16));
-        absOriginal->setVisible(true); // Child flag only; hidden top-level is never shown.
+        // Set child visibility flag
         scan();auto* absButton=absolute->findChild<QPushButton*>(QStringLiteral("zmlUninstallButton"));
         check(absButton && absButton->text()==QStringLiteral("卸载 ZML"),"real Qt button text and parent");
         check(absButton->icon().cacheKey()!=0 && absButton->icon().cacheKey()==absOriginal->icon().cacheKey() && absButton->iconSize()==absOriginal->iconSize(),"native uninstall icon and size reused by ZML button");
@@ -88,8 +95,41 @@ int main(int argc,char** argv) {
         auto* ambiguous=new TestWidget(&top);
         for(int i=0;i<2;++i){auto* b=new OptionsButton(QString(),ambiguous);b->setObjectName(QStringLiteral("btnUninstallGame"));}
         scan();check(!ambiguous->findChild<QPushButton*>(QStringLiteral("zmlUninstallButton")),"ambiguous native target rejected");delete ambiguous;
+        // Attach and late sidebar creation use real Qt lifecycle notifications,
+        // Attach widgets using Qt lifecycle
+        auto* early=new TestWidget;early->setObjectName(QStringLiteral("game_setting_dlg"));early->resize(600,300);
+        auto* earlyOriginal=new OptionsRadioButton(QStringLiteral("卸载游戏"),early);earlyOriginal->setObjectName(QStringLiteral("btnUninstallGame"));earlyOriginal->setGeometry(30,200,120,32);earlyOriginal->setVisible(true);
+        messageHook=SetWindowsHookExW(WH_GETMESSAGE,message,nullptr,uiThread);
+        check(messageHook!=nullptr,"owned GUI-thread message hook installed without any desktop/global hook");
+        auto wake=[](){
+            MSG posted{};
+            if(!PostThreadMessageW(uiThread,optionsWake,0,0) || !PeekMessageW(&posted,nullptr,optionsWake,optionsWake,PM_REMOVE))throw std::runtime_error("owned GUI wake delivery failed");
+        };
+        wake();
+        check(early->findChild<QRadioButton*>(QStringLiteral("zmlUninstallButton")),"initial GUI-thread attach mounts existing sidebar without waiting for timer");
+        check(optionsEvents && optionsEvents->thread()==app.thread(),"application event filter belongs to actual GUI thread");
+        delete early;
+        auto* late=new TestWidget;late->setObjectName(QStringLiteral("game_setting_dlg"));late->resize(600,300);
+        auto* lateOriginal=new OptionsRadioButton(QStringLiteral("卸载游戏"),late);lateOriginal->setObjectName(QStringLiteral("btnUninstallGame"));lateOriginal->setGeometry(30,200,120,32);
+        check(!late->findChild<QRadioButton*>(QStringLiteral("zmlUninstallButton")),"late sidebar has no owned button before native child is prepared");
+        lateOriginal->setVisible(true);
+        auto* immediate=late->findChild<QRadioButton*>(QStringLiteral("zmlUninstallButton"));
+        check(immediate && !immediate->isHidden(),"native ShowToParent immediately mounts button before first paint without polling");
+        QEvent show(QEvent::Show);QCoreApplication::sendEvent(late,&show);
+        check(late->findChildren<QRadioButton*>(QStringLiteral("zmlUninstallButton")).size()==1 && !scanning,"nested own Show events do not recurse or duplicate the action");
+        enabled=false;wake();check(immediate->isHidden(),"GUI wake applies disabled theme immediately without timer");
+        enabled=true;wake();check(!immediate->isHidden(),"GUI wake restores enabled theme immediately without timer");
+        delete late;
+        auto* layoutTop=new TestWidget;layoutTop->setObjectName(QStringLiteral("game_setting_dlg"));auto* layout=new TestBoxLayout(layoutTop);
+        auto* layoutOriginal=new OptionsRadioButton(QStringLiteral("卸载游戏"),layoutTop);layoutOriginal->setObjectName(QStringLiteral("btnUninstallGame"));layout->addWidget(layoutOriginal);layoutOriginal->setVisible(true);
+        auto* layoutOwn=layoutTop->findChild<QRadioButton*>(QStringLiteral("zmlUninstallButton"));
+        check(layoutOwn && !layoutOwn->isHidden() && layout->indexOf(layoutOwn)==layout->indexOf(layoutOriginal)+1,"new layout sidebar action is shown in native adjacent slot before timer");
+        delete layoutTop;
         top.setObjectName(QStringLiteral("other_game_options"));auto* other=new OptionsButton(QString(),&top);other->setObjectName(QStringLiteral("btnUninstallGame"));
         scan();check(!top.findChild<QPushButton*>(QStringLiteral("zmlUninstallButton")),"unknown dialog preserved");
-        std::cout<<"RESULT 29 native Qt checks; no desktop windows shown\n";return 0;
+        other->setVisible(true);check(!top.findChild<QPushButton*>(QStringLiteral("zmlUninstallButton")),"native Show lifecycle in other game never creates ZML action");
+        if(timer){KillTimer(nullptr,timer);timer=0;}
+        if(messageHook){UnhookWindowsHookEx(messageHook);messageHook=nullptr;}
+        std::cout<<"RESULT 39 native Qt checks; no desktop windows shown\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

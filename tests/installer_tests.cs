@@ -55,11 +55,100 @@ namespace ZmlSetup {
         static void HttpFails(InstallState s,string path,string token,string origin,int code) {
             try {Request(s,path,token,origin);}catch(WebException e){using(var r=(HttpWebResponse)e.Response)Check((int)r.StatusCode==code,"HTTP "+code+" "+path);return;}throw new Exception("HTTP should fail");
         }
+        static IEnumerable<Control> Descendants(Control owner) {
+            foreach(Control child in owner.Controls) {yield return child;foreach(var c in Descendants(child))yield return c;}
+        }
+        static void ClickForFixture(Button b) {
+            // Raise only our own managed handler, never desktop input/Show/native launcher.
+            typeof(Button).GetMethod("OnClick",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).Invoke(b,new object[]{EventArgs.Empty});
+        }
+        static void PaintFixture(Control c,Graphics g,Point origin,bool config) {
+            // Each control is printed offscreen; Form.DrawToBitmap alone skips children
+            // whose parent is intentionally hidden. No Show/Visible=true/desktop capture.
+            if((c.Name=="riskPage" && config) || (c.Name=="installPage" && !config))return;
+            if(c is Button && ((c.Text=="下一步  →" && config) || (!config && (c.Text=="安装 / 修复" || c.Text=="卸载 ZML" || c.Text=="←  上一步"))))return;
+            if(c is ProgressBar)return;
+            var position=new Point(origin.X+c.Left,origin.Y+c.Top);
+            if(c.Width<1 || c.Height<1)return;
+            using(var bitmap=new Bitmap(c.Width,c.Height)){c.DrawToBitmap(bitmap,new Rectangle(Point.Empty,c.Size));g.DrawImageUnscaled(bitmap,position);}
+            for(int i=c.Controls.Count-1;i>=0;i--)PaintFixture(c.Controls[i],g,position,config);
+        }
+        static void Preview(SetupForm form,string path) {
+            var handle=form.Handle;foreach(var c in Descendants(form)){handle=c.Handle;c.PerformLayout();}form.PerformLayout();foreach(var c in Descendants(form))c.PerformLayout();
+            using(var image=new Bitmap(form.ClientSize.Width,form.ClientSize.Height)) {
+                using(var g=Graphics.FromImage(image)) {g.Clear(form.BackColor);for(int i=form.Controls.Count-1;i>=0;i--)PaintFixture(form.Controls[i],g,Point.Empty,form.ConfigurationVisible);}
+                image.Save(path);
+            }
+        }
+        static void UiTests(Dictionary<string,byte[]> payload,string fixture) {
+            var root=Fixture(fixture);
+            Check(SetupDiscovery.FirstLauncher(new[]{"", "missing",Path.Combine(root,"absent"),root})==root,"registry candidate validation ignores stale and relative entries");
+            Check(SetupDiscovery.FirstLauncher(new[]{"", "missing"})=="","no valid registry entry leaves blank, never guesses drive locations");
+            Check(SetupDiscovery.ValidLauncher("\""+Path.Combine(root,"Launcher.exe")+"\"")==root,"registry executable path with quotes normalizes to installation root");
+            var game=InstallEngine.SuggestedGame(root);
+            Check(SetupDiscovery.GameFromLauncher(root)==game,"game inferred from launcher standard directory, no client field");
+            File.Delete(game);
+            Fails(()=>SetupDiscovery.GameFromLauncher(root),"missing game fails before installer writes");
+            Check(!File.Exists(Util.StatePath(root)),"discovery failure creates no ZML state");
+            var renamed=Path.Combine(root,"games","Renamed installation","Endfield.exe");Directory.CreateDirectory(Path.GetDirectoryName(renamed));File.Copy(fixture,renamed);
+            Check(SetupDiscovery.GameFromLauncher(root)==renamed,"unique renamed launcher-owned game directory discovered");
+            var second=Path.Combine(root,"games","Another","Endfield.exe");Directory.CreateDirectory(Path.GetDirectoryName(second));File.Copy(fixture,second);
+            Fails(()=>SetupDiscovery.GameFromLauncher(root),"ambiguous alternate game directories rejected");
+            using(var form=new SetupForm(payload,()=>root)) {
+                form.CreateControl();form.PerformLayout();
+                Check(!form.Visible && form.RiskBoxes.Length==5 && !form.AllAcknowledged && !form.NextButton.Enabled && !form.CanInstall,"fresh hidden GUI requires all five independent risk confirmations");
+                Preview(form,Path.Combine(area,"setup-risk-unchecked.png"));
+                Check(Descendants(form).OfType<TextBox>().Count()==1 && form.LauncherBox.Text==root,"GUI has launcher path only with detected prefill");
+                for(int mask=0;mask<31;mask++) {
+                    for(int i=0;i<5;i++)form.RiskBoxes[i].Checked=(mask&(1<<i))!=0;
+                    ClickForFixture(form.NextButton);
+                    if(form.ConfigurationVisible || form.NextButton.Enabled || form.CanInstall)throw new Exception("partial consent bypass "+mask);
+                }
+                Check(true,"all 31 incomplete combinations cannot advance, even forced own click event");
+                foreach(var c in form.RiskBoxes)c.Checked=true;
+                ClickForFixture(form.NextButton);form.PerformLayout();
+                Check(form.ConfigurationVisible && form.CanInstall && form.InstallButton.Enabled,"all confirmations allow install location step");
+                form.RiskBoxes[2].Checked=false;ClickForFixture(form.InstallButton);
+                Check(!form.CanInstall && !form.InstallButton.Enabled && !File.Exists(Util.StatePath(root)),"installation action rechecks consent and performs zero writes when revoked");
+                form.RiskBoxes[2].Checked=true;form.LauncherBox.Text="";
+                Check(!form.CanInstall && !form.InstallButton.Enabled,"empty launcher path disables install");
+                form.LauncherBox.Text=root;ClickForFixture(form.BackButton);
+                Check(!form.ConfigurationVisible && form.NextButton.Enabled && !form.CanInstall,"back returns to consent without installing or losing checked state");
+                form.PerformLayout();Preview(form,Path.Combine(area,"setup-risk.png"));
+                Check(form.RiskBoxes.All(c=>c.Width>500 && c.Height>=42 && TextRenderer.MeasureText(c.Text,c.Font,new Size(c.Width-c.Padding.Horizontal-32,Int32.MaxValue),TextFormatFlags.WordBreak).Height<=c.Height-c.Padding.Vertical),"all five full risk texts fit layout without clipping");
+                ClickForFixture(form.NextButton);form.PerformLayout();Preview(form,Path.Combine(area,"setup-install.png"));
+                Check(form.LauncherBox.Parent.Height<=46 && form.LauncherBox.Parent.Width>500,"launcher input stays one line, aligned with browse button");
+                Check(!form.Visible,"offscreen previews never show desktop window");
+            }
+            using(var empty=new SetupForm(payload,()=>null))Check(empty.LauncherBox.Text=="" && empty.RiskBoxes.All(c=>!c.Checked),"new run resets consent and missing detection stays empty");
+            var completedRoot=Fixture(fixture);int notices=0,operations=0;bool closed=false;SetupForm completed=null;
+            using(completed=new SetupForm(payload,()=>completedRoot,(remove,path)=> {
+                operations++;Check(!completed.CanInstall,"completion path blocks repeat actions while work is running");
+                InstallEngine.Install(path,SetupDiscovery.GameFromLauncher(path),payload,false);InstallEngine.UpgradeLauncher(path,payload);
+                return System.Threading.Tasks.Task.FromResult(0);
+            },(message,ok)=> {
+                notices++;Check(ok && Util.State(completedRoot).Status=="installed" && !completed.IsDisposed && !closed && !completed.CanInstall && message.StartsWith("安装完成"),"real fixture install finishes before one success notice; window stays blocked until acknowledgement");
+            })) {
+                var handle=completed.Handle;completed.FormClosed+=(s,e)=>closed=true;
+                foreach(var c in completed.RiskBoxes)c.Checked=true;ClickForFixture(completed.NextButton);
+                completed.Execute(false).GetAwaiter().GetResult();
+                Check(operations==1 && notices==1 && closed && completed.IsDisposed,"acknowledged completion closes and disposes installer, no idle finished window");
+            }
+            var failedRoot=Fixture(fixture);int errors=0;SetupForm failed=null;
+            using(failed=new SetupForm(payload,()=>failedRoot,(remove,path)=> {throw new IOException("fixture install failure");},(message,ok)=> {errors++;if(ok || message!="fixture install failure")throw new Exception("incorrect failure notice");})) {
+                var handle=failed.Handle;foreach(var c in failed.RiskBoxes)c.Checked=true;ClickForFixture(failed.NextButton);
+                failed.Execute(false).GetAwaiter().GetResult();
+                Check(errors==1 && !failed.IsDisposed && failed.CanInstall && failed.InstallButton.Enabled && !File.Exists(Util.StatePath(failedRoot)),"failed install reports error and remains retryable without success or closure");
+            }
+
+        }
         [STAThread] public static int Main(string[] args) {
             try {
                 area=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"fixtures-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(area);
-                bool serve=args.Length==3 && args[0]=="--serve"; var zip=args[serve?1:0];var fixture=args[serve?2:1];
+                bool serve=args.Length==3 && args[0]=="--serve", ui=args.Length==3 && args[0]=="--setup-ui"; var zip=args[serve||ui?1:0];var fixture=args[serve||ui?2:1];
                 Dictionary<string,byte[]> payload;using(var stream=File.OpenRead(zip))payload=InstallEngine.Payload(stream);
+                if(!serve)UiTests(payload,fixture);
+                if(ui) {Console.WriteLine("RESULT "+passed+" UI checks; artifacts "+area);return 0;}
                 if(serve) {
                     var root=Fixture(fixture);InstallEngine.Install(root,InstallEngine.SuggestedGame(root),payload,false);
                     Mod(root,"core",true,null);Mod(root,"sample",true,"core");
@@ -78,8 +167,9 @@ namespace ZmlSetup {
                 Check(System.Text.Encoding.UTF8.GetString(payload["ZMLLauncherBridge.exe"]).Contains("requestedExecutionLevel level=\"requireAdministrator\""),"bridge PE requests same administrator level as native launcher");
                 Fails(()=>Util.ProcessImagePath(Int32.MaxValue),"invalid process discovery fails rather than guessing path");
                 var root1=Fixture(fixture);var initial=Util.HashFile(Path.Combine(root1,"Launcher.exe"));var html=Util.HashFile(Path.Combine(root1,"1.6.0","res","web","index.html"));
-                InstallEngine.Install(root1,InstallEngine.SuggestedGame(root1),payload,false);
+                InstallEngine.Install(root1,SetupDiscovery.GameFromLauncher(root1),payload,false);
                 var s1=Util.State(root1);
+                Check(SetupDiscovery.GameFromLauncher(root1)==s1.Game,"existing ZML game record recognized without requesting client path");
                 Check(s1.Status=="installed" && Util.HashFile(Path.Combine(root1,"Launcher.zml-original.exe"))==initial,"actual framework install and byte-exact original backup");
                 Check(File.ReadAllText(Path.Combine(root1,"1.6.0","res","web","index.html")).Contains(InstallEngine.Marker),"native web page extension");
                 Check(!Directory.GetFiles(Path.Combine(root1,"ZML","mods"),"mod.ini",SearchOption.AllDirectories).Any(),"framework-only installer does not silently bundle Mods");
@@ -215,10 +305,10 @@ namespace ZmlSetup {
                     var modHash=comboCatalog.Scan().ToDictionary(m=>m.id,m=>Util.Hash(m.Original));InstallEngine.Uninstall(combo);
                     Check(comboCatalog.Scan().All(m=>Util.Hash(m.Original)==modHash[m.id]),"bundled Mods preserved byte exact after uninstall");
                 }
-                // Headless validation: no Show/DrawToBitmap or desktop GUI operation.
+                // Hidden control declarations; no desktop GUI operation.
                 using(var form=new SetupForm(payload)) {
-                    Check(form.Controls.OfType<Button>().Any(b=>b.Text=="安装 / 修复"),"installer control declarations present without opening GUI");
-                    Check(!form.Controls.OfType<CheckBox>().Any(),"installer has no bundled-Mod checkbox");
+                    Check(Descendants(form).OfType<Button>().Any(b=>b.Text=="安装 / 修复"),"installer control declarations present without opening GUI");
+                    Check(Descendants(form).OfType<CheckBox>().All(c=>c.Name.StartsWith("risk",StringComparison.Ordinal)),"installer has no bundled-Mod checkbox");
                 }
                 using(var form=new UninstallProgressForm("fixture-root",null)) {
                     var bar=form.Controls.OfType<ProgressBar>().Single();

@@ -4,7 +4,7 @@
   'use strict';
   if (document.getElementById('zml-panel') || !window.ZML_LAUNCHER) return;
   const cfg = window.ZML_LAUNCHER;
-  // Own monochrome glyphs; no launcher assets or React component implementation.
+  // Monochrome glyph icons
   const gridIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>';
   const launcherButton = document.createElement('button');
   launcherButton.id = 'zml-toggle'; launcherButton.innerHTML = gridIcon;
@@ -15,7 +15,7 @@
   launchOption.setAttribute('data-clickable', 'true');
   launchOption.innerHTML = '<input type="checkbox" aria-label="加载模组"><span class="zml-check-mark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8l2.5 2.5L12 5"/></svg></span><span>加载模组</span>';
   const loadMods = launchOption.querySelector('input');
-  // Only our preference, never host/account storage. Default off preserves ordinary launch.
+  // Launch preference state
   try { loadMods.checked = localStorage.getItem('zml.loadMods.v1') === 'true'; } catch (_) {}
   loadMods.addEventListener('change', () => { try { localStorage.setItem('zml.loadMods.v1', String(loadMods.checked)); } catch (_) {} });
   const launchStatus = document.createElement('div'); launchStatus.id = 'zml-launch-status';
@@ -24,20 +24,18 @@
   const panel = document.createElement('section'); panel.id = 'zml-panel'; panel.hidden = true;
   panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-labelledby', 'zml-title'); panel.setAttribute('data-clickable', 'true');
-  panel.innerHTML = '<header><div><h2 id="zml-title">模组管理</h2><p>终末地<span class="zml-heading-dot">·</span>管理已安装的模组</p></div><button class="zml-close" aria-label="关闭模组面板"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 4L4 12M4 4l8 8"/></svg></button></header>' +
+  panel.innerHTML = '<header><h2 id="zml-title">模组管理</h2><button class="zml-close" aria-label="关闭模组面板"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 4L4 12M4 4l8 8"/></svg></button></header>' +
     '<div class="zml-tools"><input type="search" placeholder="搜索名称、标签或作者" aria-label="搜索模组"><button data-action="refresh" aria-label="刷新模组">刷新</button><button data-action="folder">模组文件夹</button></div>' +
     '<nav class="zml-filters" aria-label="模组筛选"><button data-filter="all">全部</button><button data-filter="enabled">启用</button><button data-filter="disabled">禁用</button></nav>' +
-    '<div class="zml-list"></div><div class="zml-status" role="status"></div>' +
-    '<footer><small>模组开关在下次启动时生效。<br>勾选主按钮下方“加载模组”，直接点开始游戏。<br>第三方模组可能带来兼容及账号风险。</small></footer>';
+    '<div class="zml-list"></div><div class="zml-status" role="status"></div>';
   document.body.appendChild(launcherButton); layer.appendChild(panel); document.body.appendChild(layer);
   const list = panel.querySelector('.zml-list'), status = panel.querySelector('.zml-status'), search = panel.querySelector('input');
   let catalog = null, busy = false, lastRevision = '', filter = 'all', expandedId = null;
   let host = null, forwardNativeClick = false;
-  let lastOptionsTheme = null, optionsRequest = false, optionsAttempt = 0;
+  let lastOptionsTheme = null, optionsRequest = false, optionsRetry = 0, optionsRetryTheme = null, optionsDelay = 250;
   const readyLabels = new Set(['开始游戏', '启动游戏', '进入游戏', 'Start Game', 'Launch Game', 'Start']);
   function isEndfield() { return document.documentElement.classList.contains('theme_endfield'); }
-  // Observed native Fv layout: 60px capsule, direct main action + 52px game-options trigger.
-  // No fixed coordinates, account reads, React fields or unbounded click interception.
+  // Adapt launcher action capsule layout
   function findHost() {
     if (!isEndfield()) return null;
     const capsules = [...document.querySelectorAll('#root [data-clickable]')].filter(n =>
@@ -65,8 +63,7 @@
       if (!panel.hidden) closePanel(false);
       return;
     }
-    // Native Fv keeps its responsive width in the outer inline style. Preserve it
-    // and add exactly one 52px button; never measure our expanded width as baseline.
+    // Preserve responsive capsule width and add 52px button
     const nativeWidth = host.outer.style.width ||
       host.outer.style.getPropertyValue('--zml-native-width') || getComputedStyle(host.outer).width;
     if (/^\d+(?:\.\d+)?px$/.test(nativeWidth) && host.outer.style.getPropertyValue('--zml-native-width') !== nativeWidth) {
@@ -75,7 +72,7 @@
     if (!host.outer.classList.contains('zml-host-width')) host.outer.classList.add('zml-host-width');
     if (!host.pill.classList.contains('zml-host-pill')) host.pill.classList.add('zml-host-pill');
     if (host.dx && !host.dx.classList.contains('zml-host-dx')) host.dx.classList.add('zml-host-dx');
-    // Shorten only the rendered DX11 caption, not its checkbox or host handler.
+    // Shorten DX11 caption text
     if (host.dx) {
       const caption = [...host.dx.querySelectorAll('span')].find(n => /^DirectX\s*11/.test(n.textContent.trim()));
       if (caption) {
@@ -118,12 +115,25 @@
   }
   async function syncOptionsTheme() {
     const value = isEndfield();
-    if (lastOptionsTheme === value || optionsRequest || Date.now() - optionsAttempt < 3000) return;
-    optionsAttempt = Date.now();
+    if (lastOptionsTheme === value || optionsRequest) return;
+    if (optionsRetry && optionsRetryTheme === value) return;
+    if (optionsRetry) { clearTimeout(optionsRetry); optionsRetry = 0; }
     optionsRequest = true;
-    try { await api('/options-theme', {endfield: value}); lastOptionsTheme = value; }
-    catch (_) { /* Optional native extension failure must not break ordinary launch. */ }
-    finally { optionsRequest = false; }
+    try { await api('/options-theme', {endfield: value}); lastOptionsTheme = value; optionsDelay = 250; }
+    catch (_) {
+      // Sync launch options with server
+      lastOptionsTheme = null;
+    }
+    finally {
+      optionsRequest = false;
+      if (lastOptionsTheme !== isEndfield()) {
+        // Retry polling with backoff
+        optionsRetryTheme = isEndfield();
+        const delay = value !== optionsRetryTheme ? 0 : optionsDelay;
+        optionsDelay = Math.min(optionsDelay * 2, 5000);
+        optionsRetry = setTimeout(() => { optionsRetry = 0; syncOptionsTheme(); }, delay);
+      }
+    }
   }
   function node(tag, className, text) {
     const n = document.createElement(tag); if (className) n.className = className;
@@ -216,8 +226,7 @@
       const health = await api('/health');
       if (!health.nativeLaunch) throw new Error('桥接程序需要升级。请退出启动器，运行新版安装器的“安装 / 修复”；模组和配置会保留。');
       const prepared = await api('/prepare-launch', {}); ticket = prepared.ticket;
-      // Replay only the original main action. The official handler still owns login,
-      // update checks, launch arguments, game state, fade/minimize and process tracking.
+      // Trigger official launch action
       mountEntry();
       if (!host || !isEndfield() || !readyLabels.has(host.text.textContent.trim()) || host.main.classList.contains('cursor-not-allowed')) {
         await api('/cancel-launch', { ticket }); throw new Error('启动器状态已改变，请重新确认。');
@@ -236,8 +245,7 @@
       say(error.message, true);
     } finally { setBusy(false); draw(); }
   }
-  // Only the ready Endfield main action. Unchecked, non-ready and all other games
-  // pass through unchanged, including download/update/login/options clicks.
+  // Pass through non-mod launch actions
   document.addEventListener('click', e => {
     if (forwardNativeClick || !loadMods.checked || !host || !isEndfield() || !host.main.contains(e.target)) return;
     if (!readyLabels.has(host.text.textContent.trim()) || host.main.classList.contains('cursor-not-allowed')) return;

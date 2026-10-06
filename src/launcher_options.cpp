@@ -1,4 +1,4 @@
-// Own Qt widgets using public Qt 5.15 APIs. No native business method/offsets.
+// Qt options integration using public Qt 5.15 APIs.
 #include <QtCore/qglobal.h>
 // Vendor Qt omits some out-of-line exports of inline geometry accessors.
 // Value types have no shared data ownership. Emit their public header inlines
@@ -38,6 +38,8 @@ std::atomic<bool> enabled{false};
 std::atomic<bool> installed{false};
 std::atomic<bool> removing{false};
 DWORD uiThread;
+constexpr UINT optionsWake=WM_APP+0x454;
+bool scanning=false; // GUI thread reentrancy guard
 // The vendor library retains the wheel-event vtable slot although it does not
 // export QWidget::wheelEvent. Removing the header feature shifts every later
 // slot (including painting/click handling). Override the public virtual instead.
@@ -62,11 +64,7 @@ protected:
     void wheelEvent(QWheelEvent* event) override {event->ignore();}
     void paintEvent(QPaintEvent* event) override {
         if(!native){QRadioButton::paintEvent(event);return;}
-        // Resolve styling against the real native action, not a new widget's
-        // objectName/class/property ancestry. QSS and proxy styles may use all
-        // of these (and can be assigned after our widget is created).
-        // Draw a live native control, not a captured image. Only text/rect and
-        // interaction state come from our independent, non-exclusive action.
+        // Draw radio button using native style options
         QStyleOptionButton option;initStyleOption(&option);
         option.styleObject=native;option.palette=native->palette();option.fontMetrics=native->fontMetrics();
         option.icon=native->icon();option.iconSize=native->iconSize();
@@ -77,9 +75,7 @@ protected:
     }
 };
 QString buttonStyle(QWidget* original) {
-    // Native QSS can target #btnUninstallGame in an ancestor stylesheet rather
-    // than in original->styleSheet(). Retarget only our local copy; otherwise
-    // the new object name loses native text/background/hover styling.
+    // Adapt style rules for the uninstall button
     auto* app=qobject_cast<QApplication*>(QCoreApplication::instance());
     auto style=app?app->styleSheet():QString();
     QList<QWidget*> ancestors;
@@ -95,11 +91,10 @@ void buttonIcon(QWidget* original,QAbstractButton* own) {
     own->setIconSize(source?source->iconSize():QSize(original->style()->pixelMetric(QStyle::PM_SmallIconSize),original->style()->pixelMetric(QStyle::PM_SmallIconSize)));
 }
 QAbstractButton* createButton(QWidget* original,QWidget* parent) {
-    // Actual CGameResource uses QRadioButton with a skinned ::indicator. A
-    // QPushButton + Windows trash icon cannot reproduce that native renderer.
+    // Match native button widget type
     if(auto* radio=qobject_cast<QRadioButton*>(original))return new OptionsRadioButton(QStringLiteral("卸载 ZML"),parent,radio);
     if(qobject_cast<QPushButton*>(original))return new OptionsButton(QStringLiteral("卸载 ZML"),parent);
-    return nullptr; // Unknown renderer: do not guess its visual/interaction ABI.
+    return nullptr;
 }
 #ifdef ZML_OPTIONS_TEST
 unsigned testUninstallRequests;
@@ -114,8 +109,7 @@ public:
     void update() {
         if(!original || !own || !original->parentWidget())return;
         auto* parent=original->parentWidget();auto rect=original->geometry();
-        // Native absolute-positioned forms: derive placement from the actual control,
-        // never fixed desktop pixels. Do not overlap another native control.
+        // Position relative to the original button
         int width=qMax(rect.width(),own->sizeHint().width());
         auto fits=[&](const QRect& candidate){
             if(!parent->rect().contains(candidate))return false;
@@ -136,7 +130,7 @@ public:
 void uninstall() {
 #ifdef ZML_OPTIONS_TEST
     ++testUninstallRequests;
-    return; // Fixtures never launch an uninstaller or close real processes.
+    return;
 #endif
     if(removing.exchange(true))return;
     wchar_t dll[32768],tmp[32768];
@@ -155,6 +149,9 @@ void uninstall() {
 }
 void scan() {
     if(QThread::currentThreadId()!=reinterpret_cast<Qt::HANDLE>(static_cast<uintptr_t>(uiThread)))return;
+    if(scanning)return;
+    scanning=true;
+    struct ScanGuard {~ScanGuard(){scanning=false;}} guard;
     for(auto* top:QApplication::allWidgets()) {
         if(!top || (QString::fromLatin1(top->metaObject()->className())!=QStringLiteral("CGameSettingDlg") && top->objectName()!=QStringLiteral("game_setting_dlg")))continue;
         auto originals=top->findChildren<QWidget*>(QStringLiteral("btnUninstallGame"));
@@ -165,7 +162,7 @@ void scan() {
         if(own){
             if(own->font()!=original->font())own->setFont(original->font());
             if(own->palette()!=original->palette())own->setPalette(original->palette());
-            if(parent->layout())own->show();
+            if(parent->layout())own->setVisible(!original->isHidden());
             else for(auto* child:own->children())if(auto* placement=dynamic_cast<ButtonPlacement*>(child))placement->update();
             continue;
         }
@@ -187,13 +184,48 @@ void scan() {
         own->setMinimumHeight(original->minimumHeight());own->setSizePolicy(original->sizePolicy());
         own->setToolTip(QStringLiteral("关闭此游戏与启动器，恢复官方文件并卸载 ZML；保留模组与私人配置"));
         QObject::connect(own,&QAbstractButton::clicked,own,[]{uninstall();});
-        if(box)box->insertWidget(box->indexOf(original)+1,own);else if(grid)grid->addWidget(own,row,column+1);
+        if(box){box->insertWidget(box->indexOf(original)+1,own);own->setVisible(!original->isHidden());}
+        else if(grid){grid->addWidget(own,row,column+1);own->setVisible(!original->isHidden());}
         else new ButtonPlacement(original,own);
     }
 }
+class OptionsEvents final:public QObject {
+public:
+    explicit OptionsEvents(QApplication* app):QObject(app){app->installEventFilter(this);}
+protected:
+    bool eventFilter(QObject* source,QEvent* event) override {
+        // Show arrives before the first paint. ShowToParent also covers native
+        // Attach options widget without consuming event
+        if(event->type()==QEvent::Show || event->type()==QEvent::ShowToParent || event->type()==QEvent::LayoutRequest) {
+            if(auto* widget=qobject_cast<QWidget*>(source)) {
+                if(widget->objectName()==QStringLiteral("btnUninstallGame") ||
+                   widget->objectName()==QStringLiteral("game_setting_dlg") ||
+                   QString::fromLatin1(widget->metaObject()->className())==QStringLiteral("CGameSettingDlg")) {
+                    try{scan();}catch(...){}
+                }
+            }
+        }
+        return false;
+    }
+};
+QPointer<OptionsEvents> optionsEvents;
+void CALLBACK tick(HWND,UINT,UINT_PTR,DWORD);
+void onUiMessage() {
+    if(GetCurrentThreadId()!=uiThread)return;
+    if(!optionsEvents) {
+        auto* app=qobject_cast<QApplication*>(QCoreApplication::instance());
+        if(!app)return;
+        optionsEvents=new OptionsEvents(app);
+    }
+    if(!timer)timer=SetTimer(nullptr,0,500,tick);
+    scan(); // Initial scan
+}
 void CALLBACK tick(HWND,UINT,UINT_PTR,DWORD) {try{scan();}catch(...) {/* Optional UI must not unwind into the launcher message loop. */}}
 LRESULT CALLBACK message(int code,WPARAM w,LPARAM l) {
-    if(code>=0 && GetCurrentThreadId()==uiThread && !timer)timer=SetTimer(nullptr,0,500,tick);
+    if(code>=0 && GetCurrentThreadId()==uiThread) {
+        auto* msg=reinterpret_cast<MSG*>(l);
+        if(!optionsEvents || (msg && !msg->hwnd && msg->message==optionsWake))try{onUiMessage();}catch(...){}
+    }
     return CallNextHookEx(messageHook,code,w,l);
 }
 BOOL CALLBACK window(HWND w,LPARAM) {
@@ -203,7 +235,7 @@ BOOL CALLBACK window(HWND w,LPARAM) {
 }
 }
 extern "C" __declspec(dllexport) DWORD WINAPI ZML_SetOptionsEnabled(void* value) {
-    // Remote callers pass only 0/1 as the parameter value; no caller-supplied paths.
+    // Validate input parameter
     if(reinterpret_cast<uintptr_t>(value)>1)return ERROR_INVALID_PARAMETER;
     auto version=QLibraryInfo::version();
     if(version.majorVersion()!=5 || version.minorVersion()!=15 || version.microVersion()!=8)return ERROR_REVISION_MISMATCH;
@@ -214,8 +246,9 @@ extern "C" __declspec(dllexport) DWORD WINAPI ZML_SetOptionsEnabled(void* value)
         if(!uiThread || !QApplication::instance()){installed=false;return ERROR_NOT_READY;}
         messageHook=SetWindowsHookExW(WH_GETMESSAGE,message,module,uiThread);
         if(!messageHook){installed=false;return GetLastError();}
-        PostThreadMessageW(uiThread,WM_NULL,0,0);
     }
+    // Dispatch widget work to GUI thread
+    if(!PostThreadMessageW(uiThread,optionsWake,0,0))return GetLastError();
     return ERROR_SUCCESS;
 }
 BOOL WINAPI DllMain(HINSTANCE m,DWORD reason,LPVOID) {if(reason==DLL_PROCESS_ATTACH){module=m;DisableThreadLibraryCalls(m);}return TRUE;}
