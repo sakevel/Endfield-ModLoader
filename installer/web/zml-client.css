@@ -23,7 +23,7 @@
 #zml-launch-status:empty {display: none;}
 #zml-launch-status.zml-error {color: #f96f68;}
 #zml-toggle:hover, #zml-toggle[aria-expanded="true"] {background: rgba(24,23,26,.95);}
-#zml-toggle svg, #zml-panel .zml-fallback svg {width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5;}
+#zml-toggle svg, #zml-panel .zml-fallback svg {width: 20px; height: 20px; fill: currentColor; stroke: none;}
 #zml-layer {position: fixed; inset: 0; z-index: 1000; display: flex; align-items: stretch; justify-content: flex-end; padding: 12px; border-radius: 24px; background: rgba(0,0,0,.25);}
 #zml-layer[hidden], #zml-panel[hidden], #zml-toggle[hidden], #zml-launch-option[hidden], #zml-launch-status[hidden], #zml-panel [hidden] {display: none !important;}
 #zml-panel {

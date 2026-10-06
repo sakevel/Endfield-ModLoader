@@ -24,10 +24,10 @@ namespace ZmlSetup {
         public int ExitCode {get;private set;}
         public UninstallProgressForm(string root,string receipt) {
             this.root=root;this.receipt=receipt;ExitCode=1;
-            Text="卸载 ZML";ClientSize=new Size(520,224);StartPosition=FormStartPosition.CenterScreen;
+            Text="卸载 "+Util.RandomFullName();ClientSize=new Size(520,224);StartPosition=FormStartPosition.CenterScreen;
             FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;MinimizeBox=false;ControlBox=false;
             BackColor=Color.FromArgb(36,39,43);ForeColor=Color.White;Font=new Font("Microsoft YaHei UI",10);
-            var title=new Label {Text="正在卸载 Endfield Mod Loader",AutoSize=true,Location=new Point(24,22)};Controls.Add(title);
+            var title=new Label {Text="正在卸载 "+Util.RandomFullName(),AutoSize=true,Location=new Point(24,22)};Controls.Add(title);
             status=new Label {Text="正在准备…",Location=new Point(24,60),Size=new Size(472,24)};Controls.Add(status);
             progress=new ProgressBar {Name="uninstallProgress",Minimum=0,Maximum=100,Value=0,Location=new Point(24,90),Size=new Size(472,18),Style=ProgressBarStyle.Continuous};Controls.Add(progress);
             result=new Label {Location=new Point(24,122),Size=new Size(472,48),AutoEllipsis=true};Controls.Add(result);
@@ -46,7 +46,7 @@ namespace ZmlSetup {
             IProgress<UninstallUpdate> updates=new Progress<UninstallUpdate>(ApplyProgress);
             try {
                 var archive=await UninstallProgram.ExecuteAsync(root,(value,message)=>updates.Report(new UninstallUpdate(value,message)),receipt);
-                ApplyProgress(new UninstallUpdate(100,"ZML 已卸载，官方启动器已恢复。"));
+                ApplyProgress(new UninstallUpdate(100,Util.RandomFullName()+" 已卸载，官方启动器已恢复。"));
                 result.Text="模组与备份已保留：\n"+archive;ExitCode=0;
             } catch(Exception error) {status.Text="卸载未完成";result.ForeColor=Color.FromArgb(255,166,125);result.Text=error.Message;}
             finished=true;close.Enabled=true;ControlBox=true;
@@ -106,7 +106,7 @@ namespace ZmlSetup {
         }
         public static Task<string> ExecuteAsync(string root,Action<int,string> progress,string expectedReceipt=null) {
             return Task.Run(()=> {
-                if(progress!=null)progress(5,"正在核验 ZML 安装状态与备份…");
+                if(progress!=null)progress(5,"正在核验 "+Util.RandomFullName()+" 安装状态与备份…");
                 if(expectedReceipt!=null && Util.HashFile(Util.StatePath(root))!=expectedReceipt)throw new IOException("确认期间安装状态已改变，未继续关闭或卸载。请重试。");
                 var state=Util.State(root);InstallEngine.PreflightUninstall(root);
                 CloseRegistered(state,progress);
@@ -124,10 +124,10 @@ namespace ZmlSetup {
                 if(owned==null || Util.HashFile(Process.GetCurrentProcess().MainModule.FileName)!=owned.After) throw new IOException("卸载程序校验失败。");
                 InstallEngine.PreflightUninstall(root);AllowedProcesses(state);
                 var receipt=Util.HashFile(Util.StatePath(root));
-                if(MessageBox.Show("请先保存游戏进度。\n\n将关闭此安装目录的终末地客户端和启动器，卸载 ZML 并恢复官方文件。\n模组与备份保留在 ZML-uninstalled-* 目录；私人配置保留。\n不会卸载游戏。\n\n现在继续？","卸载 ZML",MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return 0;
+                if(MessageBox.Show("请先保存游戏进度。\n\n将关闭此安装目录的终末地客户端和启动器，卸载 ZML 并恢复官方文件。\n模组与备份保留在 ZML-uninstalled-* 目录；私人配置保留。\n不会卸载游戏。\n\n现在继续？","卸载 "+Util.RandomFullName(),MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return 0;
                 using(var form=new UninstallProgressForm(root,receipt)) {Application.Run(form);return form.ExitCode;}
                 }
-            } catch(Exception e) {MessageBox.Show(e.Message,"卸载 ZML 未完成",MessageBoxButtons.OK,MessageBoxIcon.Error);return 1;}
+            } catch(Exception e) {MessageBox.Show(e.Message,"卸载 "+Util.RandomFullName()+" 未完成",MessageBoxButtons.OK,MessageBoxIcon.Error);return 1;}
         }
     }
 }

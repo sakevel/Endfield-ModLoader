@@ -4,7 +4,16 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+
 namespace zml {
+inline const wchar_t* random_full_name_w() {
+    static const wchar_t* const names[] = { L"ZMDModLoader", L"ZeroModLoader", L"ZMLModLoader" };
+    return names[GetTickCount() % 3];
+}
+inline const char* random_full_name_a() {
+    static const char* const names[] = { "ZMDModLoader", "ZeroModLoader", "ZMLModLoader" };
+    return names[GetTickCount() % 3];
+}
 inline std::filesystem::path path_utf8(std::string_view s) {
     return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(s.data()), s.size()));
 }

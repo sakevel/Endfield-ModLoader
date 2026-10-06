@@ -5,7 +5,9 @@
   if (document.getElementById('zml-panel') || !window.ZML_LAUNCHER) return;
   const cfg = window.ZML_LAUNCHER;
   // Monochrome glyph icons
-  const gridIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>';
+  const gridIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor" fill-rule="evenodd"><path d="M15.63 16.63 L11.76 14.34 L11.43 14.36 L7.36 16.69 L7.36 20.94 L7.72 21.09 L10.64 19.39 L10.66 16.3 L11.5 15.77 L11.54 18.98 L15.1 21.09 L15.41 21.07 L15.65 20.91 Z M2.0 14.52 L2.02 18.45 L2.77 18.91 L2.86 19.4 L6.06 21.33 L6.55 21.11 L6.51 16.82 L2.51 14.32 L2.35 14.28 Z M19.91 8.94 L19.76 8.96 L17.85 10.06 L17.71 10.19 L17.71 10.65 L17.76 10.72 L19.74 11.9 L19.87 11.88 L21.94 10.69 L21.98 10.61 L21.94 10.14 Z M6.66 6.01 L6.29 6.27 L6.29 10.61 L9.05 12.25 L9.14 13.04 L5.91 11.33 L2.92 13.02 L2.84 13.59 L6.75 16.01 L10.73 13.72 L10.75 8.5 Z M11.49 2.63 L7.19 4.96 L7.16 5.28 L11.52 7.97 L11.54 12.85 L16.33 15.73 L16.35 21.07 L16.88 21.35 L20.17 19.4 L20.22 18.94 L21.03 18.43 L21.05 14.39 L20.18 13.79 L20.11 13.02 L17.12 11.33 L13.87 13.11 L13.14 12.71 L16.72 10.65 L16.73 6.23 L15.89 5.66 L15.83 4.94 Z M20.07 14.91 L20.09 18.34 L16.95 20.1 L16.94 16.71 Z M15.71 6.71 L15.71 10.17 L12.53 11.94 L12.5 8.52 Z"/></svg>';
+  const fullNames = ['ZMDModLoader', 'ZeroModLoader', 'ZMLModLoader'];
+  function getRandomFullName() { return fullNames[Math.floor(Math.random() * fullNames.length)]; }
   const launcherButton = document.createElement('button');
   launcherButton.id = 'zml-toggle'; launcherButton.innerHTML = gridIcon;
   launcherButton.title = '模组管理'; launcherButton.type = 'button';
@@ -24,7 +26,7 @@
   const panel = document.createElement('section'); panel.id = 'zml-panel'; panel.hidden = true;
   panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-labelledby', 'zml-title'); panel.setAttribute('data-clickable', 'true');
-  panel.innerHTML = '<header><h2 id="zml-title">模组管理</h2><button class="zml-close" aria-label="关闭模组面板"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 4L4 12M4 4l8 8"/></svg></button></header>' +
+  panel.innerHTML = '<header><h2 id="zml-title">' + getRandomFullName() + '</h2><button class="zml-close" aria-label="关闭模组面板"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 4L4 12M4 4l8 8"/></svg></button></header>' +
     '<div class="zml-tools"><input type="search" placeholder="搜索名称、标签或作者" aria-label="搜索模组"><button data-action="refresh" aria-label="刷新模组">刷新</button><button data-action="folder">模组文件夹</button></div>' +
     '<nav class="zml-filters" aria-label="模组筛选"><button data-filter="all">全部</button><button data-filter="enabled">启用</button><button data-filter="disabled">禁用</button></nav>' +
     '<div class="zml-list"></div><div class="zml-status" role="status"></div>';

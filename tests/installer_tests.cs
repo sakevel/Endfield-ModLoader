@@ -59,7 +59,7 @@ namespace ZmlSetup {
             foreach(Control child in owner.Controls) {yield return child;foreach(var c in Descendants(child))yield return c;}
         }
         static void ClickForFixture(Button b) {
-            // Raise only our own managed handler, never desktop input/Show/native launcher.
+            // Trigger managed test handler
             typeof(Button).GetMethod("OnClick",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).Invoke(b,new object[]{EventArgs.Empty});
         }
         static void PaintFixture(Control c,Graphics g,Point origin,bool config) {
@@ -79,6 +79,98 @@ namespace ZmlSetup {
                 using(var g=Graphics.FromImage(image)) {g.Clear(form.BackColor);for(int i=form.Controls.Count-1;i>=0;i--)PaintFixture(form.Controls[i],g,Point.Empty,form.ConfigurationVisible);}
                 image.Save(path);
             }
+        }
+        static void AwaitFixture(System.Threading.Tasks.Task task) {
+            // Pump only our hidden owned fixture's message queue; no desktop input or Show.
+            var timer=System.Diagnostics.Stopwatch.StartNew();
+            while(!task.IsCompleted) {if(timer.ElapsedMilliseconds>60000)throw new Exception("owned UI task timeout");Application.DoEvents();Thread.Sleep(10);}
+            task.GetAwaiter().GetResult();
+        }
+        static System.Diagnostics.Process BackgroundFixture(string path,string fixture) {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));if(!File.Exists(path))File.Copy(fixture,path);
+            return System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) {UseShellExecute=false,CreateNoWindow=true,WindowStyle=System.Diagnostics.ProcessWindowStyle.Hidden});
+        }
+        static void FinishFixture(System.Diagnostics.Process process) {
+            if(process==null)return;
+            try {if(!process.HasExited){process.Kill();process.WaitForExit(5000);}}finally{process.Dispose();}
+        }
+        static void Ready(SetupForm form) {var h=form.Handle;foreach(var c in form.RiskBoxes)c.Checked=true;ClickForFixture(form.NextButton);}
+        static void ProcessTests(Dictionary<string,byte[]> payload,string fixture) {
+            var root=Fixture(fixture);var otherRoot=Fixture(fixture);
+            System.Diagnostics.Process launcher=null,web=null,foreign=null,game=null,gameWeb=null;
+            try {
+                launcher=BackgroundFixture(Path.Combine(root,"Launcher.exe"),fixture);
+                web=BackgroundFixture(Util.Under(root,"1.6.0\\QtWebEngineProcess.exe"),fixture);
+                foreign=BackgroundFixture(Path.Combine(otherRoot,"Launcher.exe"),fixture);
+                game=BackgroundFixture(InstallEngine.SuggestedGame(root),fixture);
+                gameWeb=BackgroundFixture(Util.Under(root,"games\\Endfield Game\\QtWebEngineProcess.exe"),fixture);
+                using(var capture=LauncherProcesses.Capture(root)) {
+                    var targets=capture.Targets;
+                    Check(targets.Length==2 && targets.Any(t=>t.Pid==launcher.Id) && targets.Any(t=>t.Pid==web.Id),"capture matches exact launcher and version WebEngine paths, excludes same-name foreign and game processes");
+                    using(var dialog=new LauncherCloseForm(targets)) {
+                        var h=dialog.Handle;dialog.PerformLayout();
+                        Check(!dialog.Visible && dialog.ConfirmButton.Text=="确定" && dialog.ReturnButton.Text=="返回" && dialog.AcceptButton==dialog.ReturnButton && dialog.CancelButton==dialog.ReturnButton && dialog.ReturnButton.DialogResult==DialogResult.Cancel && dialog.ConfirmButton.DialogResult==DialogResult.OK,"cleanup dialog has explicit confirm/return and safe Enter/Escape default");
+                        Check(Descendants(dialog).OfType<TextBox>().Single().Text.Contains("PID "+launcher.Id) && Descendants(dialog).OfType<TextBox>().Single().Text.Contains(web.MainModule.FileName),"cleanup prompt lists exact PIDs and executable paths before authorization");
+                    }
+                }
+                Check(!launcher.HasExited && !web.HasExited,"capture and dispose never terminate processes without confirmation");
+                Fails(()=>Util.CheckLauncherClosed(root),"noninteractive transaction guard still refuses running launcher rather than implicitly killing it");
+                Check(!launcher.HasExited && !web.HasExited,"CLI/engine closed-launcher guard leaves matching processes alive");
+                int confirms=0,ops=0,errors=0;int uiThread=Thread.CurrentThread.ManagedThreadId;
+                using(var form=new SetupForm(payload,()=>root,(remove,path)=> {ops++;return System.Threading.Tasks.Task.FromResult(0);},(message,ok)=>errors++,targets=> {confirms++;Check(Thread.CurrentThread.ManagedThreadId==uiThread && targets.Length==2,"confirmation delivered on owned UI thread while target handles held");return false;})) {
+                    Ready(form);AwaitFixture(form.Execute(false));
+                    Check(confirms==1 && ops==0 && errors==0 && !form.IsDisposed && form.CanInstall && !File.Exists(Util.StatePath(root)) && !launcher.HasExited && !web.HasExited,"return cancels with zero install writes or kills and restores retryable UI");
+                }
+                confirms=ops=0;int successes=0;
+                using(var form=new SetupForm(payload,()=>root,(remove,path)=> {
+                    ops++;InstallEngine.Install(path,SetupDiscovery.GameFromLauncher(path),payload,false,Int32.MaxValue,false);InstallEngine.UpgradeLauncher(path,payload);return System.Threading.Tasks.Task.FromResult(0);
+                },(message,ok)=> {if(!ok)throw new Exception(message);successes++;},targets=> {confirms++;return true;})) {
+                    Ready(form);AwaitFixture(form.Execute(false));
+                    Check(confirms==1 && ops==1 && successes==1 && form.IsDisposed && Util.State(root).Status=="installed" && launcher.WaitForExit(5000) && web.WaitForExit(5000),"confirmed cleanup terminates held exact fixtures then completes real copy installation and closes");
+                }
+                Check(!foreign.HasExited && !game.HasExited && !gameWeb.HasExited,"successful cleanup preserves other launcher, game and game-owned WebEngine");
+            } finally {FinishFixture(launcher);FinishFixture(web);FinishFixture(foreign);FinishFixture(game);FinishFixture(gameWeb);}
+            var raceRoot=Fixture(fixture);System.Diagnostics.Process before=null,after=null;
+            try {
+                before=BackgroundFixture(Path.Combine(raceRoot,"Launcher.exe"),fixture);int errors=0,ops=0;
+                using(var form=new SetupForm(payload,()=>raceRoot,(remove,path)=> {ops++;InstallEngine.Install(path,SetupDiscovery.GameFromLauncher(path),payload,false,Int32.MaxValue,false);return System.Threading.Tasks.Task.FromResult(0);},(message,ok)=> {if(ok)throw new Exception("unexpected race success");errors++;},targets=> {
+                    Check(targets.Length==1 && targets[0].Pid==before.Id,"confirmation snapshot contains only displayed process");
+                    after=BackgroundFixture(Util.Under(raceRoot,"1.6.0\\QtWebEngineProcess.exe"),fixture);return true;
+                })) {
+                    Ready(form);AwaitFixture(form.Execute(false));
+                    Check(before.WaitForExit(5000) && !after.HasExited && errors==1 && ops==1 && form.CanInstall && !form.IsDisposed && !File.Exists(Util.StatePath(raceRoot)),"new process after confirmation remains alive and transaction fails closed before any install writes");
+                }
+            } finally {FinishFixture(before);FinishFixture(after);}
+            var exitRoot=Fixture(fixture);System.Diagnostics.Process exiting=null,successor=null;
+            try {
+                exiting=BackgroundFixture(Path.Combine(exitRoot,"Launcher.exe"),fixture);
+                using(var capture=LauncherProcesses.Capture(exitRoot)) {
+                    exiting.Kill();exiting.WaitForExit();
+                    successor=BackgroundFixture(Path.Combine(exitRoot,"Launcher.exe"),fixture);capture.StopConfirmed();
+                    Check(exiting.HasExited && !successor.HasExited,"exited snapshot process is skipped; unconfirmed same-path successor is not terminated");
+                    capture.Dispose();Fails(()=>capture.StopConfirmed(),"disposed process snapshot cannot be reused for termination");
+                }
+            } finally {FinishFixture(exiting);FinishFixture(successor);}
+            var badRoot=Fixture(fixture);System.Diagnostics.Process blocked=null;
+            try {
+                blocked=BackgroundFixture(Path.Combine(badRoot,"Launcher.exe"),fixture);File.Delete(InstallEngine.SuggestedGame(badRoot));
+                int confirmations=0,operations=0,errors=0;
+                using(var form=new SetupForm(payload,()=>badRoot,(remove,path)=> {operations++;return System.Threading.Tasks.Task.FromResult(0);},(message,ok)=> {if(ok)throw new Exception("invalid game succeeded");errors++;},targets=> {confirmations++;return true;})) {
+                    Ready(form);AwaitFixture(form.Execute(false));
+                    Check(errors==1 && confirmations==0 && operations==0 && !blocked.HasExited && !File.Exists(Util.StatePath(badRoot)) && form.CanInstall,"invalid game preflight fails before cleanup prompt, termination or installation writes");
+                }
+            } finally {FinishFixture(blocked);}
+            var versionRoot=Fixture(fixture);System.Diagnostics.Process native=null,original=null;
+            try {
+                native=BackgroundFixture(Util.Under(versionRoot,"1.6.0\\Games.exe"),fixture);
+                original=BackgroundFixture(Util.Under(versionRoot,"Launcher.zml-original.exe"),fixture);
+                using(var capture=LauncherProcesses.Capture(versionRoot)) {
+                    Check(capture.Targets.Length==2 && capture.Targets.Any(t=>t.Pid==native.Id) && capture.Targets.Any(t=>t.Pid==original.Id),"native version Games and ZML original entry are recognized by exact paths");
+                    capture.StopConfirmed();
+                    Check(native.WaitForExit(5000) && original.WaitForExit(5000),"confirmed held-handle termination supports native and original launcher leftovers");
+                }
+            } finally {FinishFixture(native);FinishFixture(original);}
+            Fails(()=>LauncherProcesses.Capture(Path.Combine(area,"missing-launcher")),"invalid launcher rejected before process cleanup");
         }
         static void UiTests(Dictionary<string,byte[]> payload,string fixture) {
             var root=Fixture(fixture);
@@ -131,13 +223,13 @@ namespace ZmlSetup {
             })) {
                 var handle=completed.Handle;completed.FormClosed+=(s,e)=>closed=true;
                 foreach(var c in completed.RiskBoxes)c.Checked=true;ClickForFixture(completed.NextButton);
-                completed.Execute(false).GetAwaiter().GetResult();
+                AwaitFixture(completed.Execute(false));
                 Check(operations==1 && notices==1 && closed && completed.IsDisposed,"acknowledged completion closes and disposes installer, no idle finished window");
             }
             var failedRoot=Fixture(fixture);int errors=0;SetupForm failed=null;
             using(failed=new SetupForm(payload,()=>failedRoot,(remove,path)=> {throw new IOException("fixture install failure");},(message,ok)=> {errors++;if(ok || message!="fixture install failure")throw new Exception("incorrect failure notice");})) {
                 var handle=failed.Handle;foreach(var c in failed.RiskBoxes)c.Checked=true;ClickForFixture(failed.NextButton);
-                failed.Execute(false).GetAwaiter().GetResult();
+                AwaitFixture(failed.Execute(false));
                 Check(errors==1 && !failed.IsDisposed && failed.CanInstall && failed.InstallButton.Enabled && !File.Exists(Util.StatePath(failedRoot)),"failed install reports error and remains retryable without success or closure");
             }
 
@@ -147,7 +239,7 @@ namespace ZmlSetup {
                 area=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"fixtures-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(area);
                 bool serve=args.Length==3 && args[0]=="--serve", ui=args.Length==3 && args[0]=="--setup-ui"; var zip=args[serve||ui?1:0];var fixture=args[serve||ui?2:1];
                 Dictionary<string,byte[]> payload;using(var stream=File.OpenRead(zip))payload=InstallEngine.Payload(stream);
-                if(!serve)UiTests(payload,fixture);
+                if(!serve){UiTests(payload,fixture);ProcessTests(payload,fixture);}
                 if(ui) {Console.WriteLine("RESULT "+passed+" UI checks; artifacts "+area);return 0;}
                 if(serve) {
                     var root=Fixture(fixture);InstallEngine.Install(root,InstallEngine.SuggestedGame(root),payload,false);
@@ -277,7 +369,7 @@ namespace ZmlSetup {
                 var upgrade=new Dictionary<string,byte[]>(payload,StringComparer.OrdinalIgnoreCase);
                 upgrade["ZMLLauncherBridge.exe"]=File.ReadAllBytes(fixture);
                 upgrade["web\\zml-client.css"]=Util.Utf8.GetBytes("/* new upgrade */");
-                // Schema-1 installation from 0.1.3 did not have the adapter. Test addition/rollback.
+                // Test legacy installation upgrade and rollback.
                 var legacy=Util.State(repair);legacy.Files.RemoveAll(f=>f.Path=="ZML\\ZMLNativeLaunch.dll");
                 File.Delete(Util.Under(repair,"ZML\\ZMLNativeLaunch.dll"));Util.WriteJson(Util.StatePath(repair),legacy);
                 var upgradeBefore=Util.State(repair).Files.ToDictionary(f=>f.Path,f=>Util.HashFile(Util.Under(repair,f.Path)));

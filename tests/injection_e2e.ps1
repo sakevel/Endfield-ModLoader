@@ -9,10 +9,10 @@ function ChildPid($output) {
 }
 try {
     # Positive path: the real runtime, no mods, harmless fixture instead of game.
-    Copy-Item -LiteralPath $Launcher -Destination (Join-Path $root 'ZML.exe')
+    Copy-Item -LiteralPath $Launcher -Destination (Join-Path $root 'ZMLModLoader.exe')
     Copy-Item -LiteralPath (Join-Path (Split-Path $Launcher -Parent) 'ZMLRuntime.dll') -Destination $root
     Copy-Item -LiteralPath $Fixture -Destination $root
-    $run = Join-Path $root 'ZML.exe'
+    $run = Join-Path $root 'ZMLModLoader.exe'
     $game = Join-Path $root (Split-Path $Fixture -Leaf)
     $marker = Join-Path $root 'marker.txt'
     $output = & $run --game $game -- --marker $marker 2>&1

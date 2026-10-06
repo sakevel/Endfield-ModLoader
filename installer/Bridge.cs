@@ -121,12 +121,12 @@ namespace ZmlSetup {
                         }
                     } catch(SocketException) {
                         StartOriginal(original,root,args);
-                        MessageBox.Show("模组面板端口被占用。原启动器仍可使用；请退出启动器后运行安装器重新安装。", "Endfield Mod Loader",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                        MessageBox.Show("模组面板端口被占用。原启动器仍可使用；请退出启动器后运行安装器重新安装。", Util.RandomFullName(), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return 1;
                     }
                 }
                 return 0;
-            } catch(Exception e) { MessageBox.Show(e.Message,"Endfield Mod Loader",MessageBoxButtons.OK,MessageBoxIcon.Error); return 1; }
+            } catch(Exception e) { MessageBox.Show(e.Message, Util.RandomFullName(), MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
         }
         static void StartOriginal(string exe,string root,string[] args) { Process.Start(new ProcessStartInfo(exe,String.Join(" ",args.Select(Util.Quote))) {WorkingDirectory=root,UseShellExecute=false}); }
     }

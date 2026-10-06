@@ -201,7 +201,7 @@ DWORD WINAPI initialize(void*) {
         rt = new Runtime;
         std::filesystem::create_directories(state_root());
         rt->log_path = state_root() / L"runtime.log";
-        rt->log("runtime", "ZML " ZML_VERSION " loaded; waiting for GameAssembly");
+        rt->log("runtime", std::string(random_full_name_a()) + " " + ZML_VERSION + " loaded; waiting for GameAssembly");
         auto deadline = GetTickCount64() + 120000;
         while (!GetModuleHandleW(L"GameAssembly.dll")) {
             if (GetTickCount64() >= deadline) throw std::runtime_error("GameAssembly wait timed out");

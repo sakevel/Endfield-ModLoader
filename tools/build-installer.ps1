@@ -8,7 +8,7 @@ if(-not(Test-Path -LiteralPath $compiler)){throw '.NET Framework 4.x C# compiler
 $build=Join-Path $root 'build/installer'; New-Item -ItemType Directory -Force $build | Out-Null
 $source=Join-Path $root 'installer'
 $refs=@('/r:System.dll','/r:System.Core.dll','/r:System.Web.Extensions.dll','/r:System.Windows.Forms.dll','/r:System.Drawing.dll','/r:System.IO.Compression.dll','/r:System.IO.Compression.FileSystem.dll')
-$ui=@((Join-Path $source 'Discovery.cs'),(Join-Path $source 'SetupUi.cs'))
+$ui=@((Join-Path $source 'Discovery.cs'),(Join-Path $source 'SetupUi.cs'),(Join-Path $source 'LauncherProcesses.cs'))
 $common=@((Join-Path $source 'Shared.cs'),(Join-Path $source 'Catalog.cs'),(Join-Path $source 'NativeLaunch.cs'))
 $bridge=Join-Path $build 'ZMLLauncherBridge.exe'
 & $compiler /nologo /target:winexe /platform:x64 /optimize+ /warnaserror+ @refs "/out:$bridge" "/win32manifest:$(Join-Path $source 'bridge.manifest')" @common (Join-Path $source 'Bridge.cs')
@@ -18,7 +18,7 @@ $uninstaller=Join-Path $build 'ZMLUninstall.exe'
 if($LASTEXITCODE -ne 0){throw 'Uninstaller compilation failed'}
 $scratch=Join-Path $build ('payload-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $scratch | Out-Null
 $package=Join-Path $root 'build/package/Release'
-foreach($file in @('ZML.exe','ZMLRuntime.dll','ZMLNativeLaunch.dll','ZMLLauncherOptions.dll','README.md','MinHook-LICENSE.txt','Qt-LICENSE.txt','loader.ini.example','lua/zml.lua','docs/MOD_API.md')){
+foreach($file in @('ZMLModLoader.exe','ZMLRuntime.dll','ZMLNativeLaunch.dll','ZMLLauncherOptions.dll','README.md','MinHook-LICENSE.txt','Qt-LICENSE.txt','loader.ini.example','lua/zml.lua','docs/MOD_API.md')){
     $dest=Join-Path $scratch $file; New-Item -ItemType Directory -Force (Split-Path $dest -Parent) | Out-Null
     Copy-Item -LiteralPath (Join-Path $package $file) -Destination $dest
 }
@@ -41,7 +41,7 @@ if(-not $SkipTests){
     if($LASTEXITCODE -ne 0){throw 'Installer tests failed'}
 }
 $dist=Join-Path $root 'dist';New-Item -ItemType Directory -Force $dist | Out-Null
-$release=Join-Path $dist ('ZMLSetup-0.1.13-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-win-x64.exe')
+$release=Join-Path $dist ('ZMLSetup-0.1.14-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-win-x64.exe')
 Copy-Item -LiteralPath $setup -Destination $release
 $sha=[Security.Cryptography.SHA256]::Create()
 try {$hash=[BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($release))).Replace('-','')}finally{$sha.Dispose()}

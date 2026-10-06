@@ -39,7 +39,7 @@ namespace ZmlSetup {
                     throw new IOException("安装包条目无效");
                 using(var s=e.Open()) using(var m=new MemoryStream()) { s.CopyTo(m); files.Add(path,m.ToArray()); }
             }
-            foreach(var required in new[]{"ZML.exe","ZMLRuntime.dll","ZMLNativeLaunch.dll","ZMLLauncherOptions.dll","ZMLUninstall.exe","Qt-LICENSE.txt","lua\\zml.lua","ZMLLauncherBridge.exe","web\\zml-client.js","web\\zml-client.css"})
+            foreach(var required in new[]{"ZMLModLoader.exe","ZMLRuntime.dll","ZMLNativeLaunch.dll","ZMLLauncherOptions.dll","ZMLUninstall.exe","Qt-LICENSE.txt","lua\\zml.lua","ZMLLauncherBridge.exe","web\\zml-client.js","web\\zml-client.css"})
                 if(!files.ContainsKey(required)) throw new IOException("安装包缺少 "+required);
             return files;
         }
@@ -194,7 +194,7 @@ namespace ZmlSetup {
             if(upgradeBridge) {
                 var adapter="ZML\\ZMLNativeLaunch.dll";
                 if(Util.HashFile(Util.Under(state.Root,adapter))!=Util.Hash(payload["ZMLNativeLaunch.dll"])) edits[adapter]=payload["ZMLNativeLaunch.dll"];
-                foreach(var name in new[]{"ZMLUninstall.exe","ZMLLauncherOptions.dll","Qt-LICENSE.txt","ZMLRuntime.dll","ZML.exe","lua\\zml.lua"}) {
+                foreach(var name in new[]{"ZMLUninstall.exe","ZMLLauncherOptions.dll","Qt-LICENSE.txt","ZMLRuntime.dll","ZMLModLoader.exe","lua\\zml.lua"}) {
                     if(payload.ContainsKey(name) && Util.HashFile(Util.Under(state.Root,"ZML\\"+name))!=Util.Hash(payload[name])) edits["ZML\\"+name]=payload[name];
                 }
             }

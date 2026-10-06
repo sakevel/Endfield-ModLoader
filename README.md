@@ -1,4 +1,4 @@
-# Endfield Mod Loader (ZML)
+# ZML
 
 适用于《明日方舟：终末地》的轻量级 Windows x64 模组加载器，提供游戏启动器集成、DLL 插件加载、运行时 IL2CPP 解析、配置服务与 Lua 脚本热修补管线。
 
@@ -35,7 +35,7 @@
 .\tools\install-mod.ps1 -ModPackage "..\Endfield-ModMenu\build\package\Release\mod-menu"
 
 # 查看当前已安装的模组列表
-.\build\package\Release\ZML.exe --list
+.\build\package\Release\ZMLModLoader.exe --list
 ```
 
 模组的用户自定义配置保存在 `%LOCALAPPDATA%\ZML\mods\<模组ID>\config.ini`，更新或重新安装模组不会覆盖已有的个人配置。
@@ -68,7 +68,7 @@
 
 ```powershell
 # 预检游戏路径与环境
-.\build\package\Release\ZML.exe --game "D:\Game\Hypergryph Launcher\games\Endfield Game\Endfield.exe" --dry-run
+.\build\package\Release\ZMLModLoader.exe --game "D:\Game\Hypergryph Launcher\games\Endfield Game\Endfield.exe" --dry-run
 ```
 
 ---

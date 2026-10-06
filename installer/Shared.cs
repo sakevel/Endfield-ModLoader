@@ -31,6 +31,11 @@ namespace ZmlSetup {
                 return path.ToString();
             } finally {CloseHandle(handle);}
         }
+        private static readonly string[] FullNames = { "ZMDModLoader", "ZeroModLoader", "ZMLModLoader" };
+        private static readonly Random Rnd = new Random();
+        public static string RandomFullName() {
+            lock(Rnd) { return FullNames[Rnd.Next(FullNames.Length)]; }
+        }
         public static readonly UTF8Encoding Utf8 = new UTF8Encoding(false, true);
         public static string Json(object value) { return new JavaScriptSerializer { MaxJsonLength = 8*1024*1024 }.Serialize(value); }
         public static T ReadJson<T>(string path) {
@@ -91,7 +96,7 @@ namespace ZmlSetup {
             var state=ReadJson<InstallState>(StatePath(root));
             if (state==null || state.Schema!=1 || !String.Equals(Path.GetFullPath(root).TrimEnd('\\'), state.Root, StringComparison.OrdinalIgnoreCase) || state.Port<1024 || state.Port>65535 || state.Token==null || !System.Text.RegularExpressions.Regex.IsMatch(state.Token,"^[0-9a-f]{64}$") || state.Files==null || state.Files.Count>256) throw new IOException("安装状态无效");
             var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var known=new[]{"Launcher.exe","Launcher.zml-original.exe","ZML\\ZML.exe","ZML\\ZMLRuntime.dll","ZML\\ZMLNativeLaunch.dll","ZML\\ZMLLauncherOptions.dll","ZML\\ZMLUninstall.exe","ZML\\Qt-LICENSE.txt","ZML\\README.md","ZML\\MinHook-LICENSE.txt","ZML\\loader.ini.example","ZML\\loader.ini","ZML\\lua\\zml.lua","ZML\\docs\\MOD_API.md","ZML\\INSTALLER.md"};
+            var known=new[]{"Launcher.exe","Launcher.zml-original.exe","ZML\\ZMLModLoader.exe","ZML\\ZMLRuntime.dll","ZML\\ZMLNativeLaunch.dll","ZML\\ZMLLauncherOptions.dll","ZML\\ZMLUninstall.exe","ZML\\Qt-LICENSE.txt","ZML\\README.md","ZML\\MinHook-LICENSE.txt","ZML\\loader.ini.example","ZML\\loader.ini","ZML\\lua\\zml.lua","ZML\\docs\\MOD_API.md","ZML\\INSTALLER.md"};
             var digest=new System.Text.RegularExpressions.Regex("^[0-9a-f]{64}$");
             foreach(var f in state.Files) {
                 // Validate uninstaller state path
@@ -101,7 +106,7 @@ namespace ZmlSetup {
             return state;
         }
         public static void Validate(string root, string game) {
-            Run(Under(root,"ZML\\ZML.exe"), "--game " + Quote(game) + " --dry-run", Under(root,"ZML"), 30);
+            Run(Under(root,"ZML\\ZMLModLoader.exe"), "--game " + Quote(game) + " --dry-run", Under(root,"ZML"), 30);
         }
         public static void CheckLauncherClosed(string root) {
             var prefix=Path.GetFullPath(root).TrimEnd('\\')+"\\";

@@ -20,7 +20,7 @@ namespace ZmlSetup {
                 else if((args.Length==2 || args.Length==3) && args[0]=="--install") {var game=args.Length==3?args[2]:SetupDiscovery.GameFromLauncher(args[1]);InstallEngine.Install(args[1],game,payload,false);InstallEngine.UpgradeLauncher(args[1],payload);}
                 else throw new IOException("参数：--install <启动器目录> [Endfield.exe]、--refresh-ui <启动器目录>、--upgrade-launcher <启动器目录> 或 --uninstall <启动器目录>");
                 return 0;
-            } catch(Exception e) {if(args.Length==0)MessageBox.Show(e.Message,"ZML 安装器",MessageBoxButtons.OK,MessageBoxIcon.Error);else Console.Error.WriteLine(e.Message);return 1;}
+            } catch(Exception e) {if(args.Length==0)MessageBox.Show(e.Message, Util.RandomFullName() + " 安装器", MessageBoxButtons.OK, MessageBoxIcon.Error);else Console.Error.WriteLine(e.Message);return 1;}
         }
     }
 }

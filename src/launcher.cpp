@@ -98,7 +98,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (flag == L"--dry-run") dry = true;
             else if (flag == L"--") { for (++i; i < argc; ++i) extra.emplace_back(argv[i]); break; }
             else if (flag == L"--help") {
-                std::wcout << L"ZML [--game Endfield.exe] [--list|--dry-run] [-- game arguments]\n"; return 0;
+                std::wcout << random_full_name_w() << L" [--game Endfield.exe] [--list|--dry-run] [-- game arguments]\n"; return 0;
             } else throw std::runtime_error("Unknown/incomplete option");
         }
         auto mods = discover(root / L"mods");
@@ -133,6 +133,6 @@ int wmain(int argc, wchar_t** argv) {
         std::wcout << L"Log: " << (state_root() / L"runtime.log").wstring() << '\n';
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "ZML: " << error.what() << '\n'; return 1;
+        std::cerr << random_full_name_a() << ": " << error.what() << '\n'; return 1;
     }
 }

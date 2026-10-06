@@ -10,7 +10,7 @@ $zip = Join-Path $dist ('ZML-0.4.0-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + $f
 # from accidentally entering the redistributable package.
 $scratch = Join-Path $dist ('staging-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $scratch | Out-Null
-foreach ($name in @('ZML.exe','ZMLRuntime.dll','README.md','MinHook-LICENSE.txt','loader.ini.example')) {
+foreach ($name in @('ZMLModLoader.exe','ZMLRuntime.dll','README.md','MinHook-LICENSE.txt','loader.ini.example')) {
     Copy-Item -LiteralPath (Join-Path $package $name) -Destination $scratch
 }
 # Optional, separately built Mod packages. No specific Mod id or source path.

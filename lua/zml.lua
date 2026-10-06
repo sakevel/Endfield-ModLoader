@@ -2,6 +2,11 @@
 if _G.ZML and _G.ZML.api_version == 1 then return _G.ZML end
 local snapshot = __ZML_REGISTRY__
 local api = { api_version = 1, config_menu_version = 1 }
+local FULL_NAMES = { "ZMDModLoader", "ZeroModLoader", "ZMLModLoader" }
+function api.full_name()
+    return FULL_NAMES[math.random(1, #FULL_NAMES)]
+end
+api.name = "ZML"
 local listeners, entries = {}, {}
 local function copy(value)
     if type(value) ~= "table" then return value end
