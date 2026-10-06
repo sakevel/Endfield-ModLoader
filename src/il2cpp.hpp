@@ -15,6 +15,7 @@ class Il2Cpp {
     void* (*class_named_)(void*, const char*, const char*) = nullptr;
     const void* (*methods_)(void*, void**) = nullptr;
     const char* (*method_name_)(const void*) = nullptr;
+    uint32_t (*method_flags_)(const void*,uint32_t*) = nullptr;
     uint32_t (*parameter_count_)(const void*) = nullptr;
     const void* (*parameter_)(const void*, uint32_t) = nullptr;
     const void* (*return_type_)(const void*) = nullptr;
@@ -26,6 +27,11 @@ class Il2Cpp {
     void* (*invoke_)(const void*, void*, void**, void**) = nullptr;
     uint32_t (*root_)(void*, bool) = nullptr;
     void (*unroot_)(uint32_t) = nullptr;
+    void* (*object_class_)(void*) = nullptr;
+    void* (*field_named_)(void*, const char*) = nullptr;
+    const void* (*field_type_)(void*) = nullptr;
+    uint32_t (*field_flags_)(void*) = nullptr;
+    void (*field_value_)(void*, void*, void*) = nullptr;
     std::string type(const void* value);
 public:
     void* (*attach)(void*) = nullptr;
@@ -35,8 +41,10 @@ public:
     ManagedMethod method(const char* image, const char* ns, const char* klass,
                          const char* name, const char* returns, std::vector<std::string_view> args);
     void* call(ManagedMethod method, void* object = nullptr, void** args = nullptr);
+    bool is_static(ManagedMethod method) const;
     std::string string(void* value, size_t limit = 1024 * 1024);
     void* make_string(const std::string& text);
+    void* reference_field(void* object, const char* name, const char* expected_type);
     uint32_t protect(void* object);
     void release(uint32_t handle);
 };

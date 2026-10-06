@@ -34,11 +34,12 @@ namespace ZmlSetup {
             using(var zip=new ZipArchive(stream,ZipArchiveMode.Read)) foreach(var e in zip.Entries) {
                 if(e.FullName.EndsWith("/")) continue;
                 var path=e.FullName.Replace('/','\\');
+                if(path.StartsWith("mods\\",StringComparison.OrdinalIgnoreCase)) throw new IOException("安装器不允许携带模组，请单独安装模组包。");
                 if(path.StartsWith("\\") || path.Contains(":") || path.Split('\\').Any(x=>x==".." || x=="." || x.Length==0) || files.ContainsKey(path) || e.Length>128*1024*1024 || (total+=e.Length)>512*1024*1024)
                     throw new IOException("安装包条目无效");
                 using(var s=e.Open()) using(var m=new MemoryStream()) { s.CopyTo(m); files.Add(path,m.ToArray()); }
             }
-            foreach(var required in new[]{"ZML.exe","ZMLRuntime.dll","ZMLNativeLaunch.dll","lua\\zml.lua","ZMLLauncherBridge.exe","web\\zml-client.js","web\\zml-client.css"})
+            foreach(var required in new[]{"ZML.exe","ZMLRuntime.dll","ZMLNativeLaunch.dll","ZMLLauncherOptions.dll","ZMLUninstall.exe","Qt-LICENSE.txt","lua\\zml.lua","ZMLLauncherBridge.exe","web\\zml-client.js","web\\zml-client.css"})
                 if(!files.ContainsKey(required)) throw new IOException("安装包缺少 "+required);
             return files;
         }
@@ -56,30 +57,43 @@ namespace ZmlSetup {
                 if(f.Backup!=null && Util.HashFile(Util.Under(state.Root,f.Backup))!=f.Before) throw new IOException("备份校验失败："+f.Path);
             }
         }
-        static void Restore(InstallState state) {
-            // Preflight every path before restoring anything; never clobber a third-party edit.
+        static void Restore(InstallState state, Action<int,string> progress=null) {
+            // Validate files before restore
             foreach(var f in state.Files) {
                 var hash=Util.HashFile(Util.Under(state.Root,f.Path));
                 if(hash!=f.After && hash!=f.Before) throw new IOException("恢复遇到外部更改："+f.Path);
                 if(f.Before!=null && Util.HashFile(Util.Under(state.Root,f.Backup))!=f.Before) throw new IOException("恢复备份损坏："+f.Path);
             }
+            int restored=0;
             foreach(var f in state.Files.AsEnumerable().Reverse()) {
                 var path=Util.Under(state.Root,f.Path);
                 if(f.Before==null) { if(File.Exists(path)) File.Delete(path); }
                 else Util.Atomic(path,File.ReadAllBytes(Util.Under(state.Root,f.Backup)));
+                if(progress!=null)progress(40+45*(++restored)/Math.Max(1,state.Files.Count),"正在恢复官方文件并移除 ZML（"+restored+"/"+state.Files.Count+"）…");
             }
         }
-        public static void Uninstall(string root) {
+        public static void Uninstall(string root, Action<int,string> progress=null) {
             root=Path.GetFullPath(root).TrimEnd('\\'); Util.NoLinks(root); Util.CheckLauncherClosed(root);
             var state=Util.State(root);
-            Restore(state);
+            if(progress!=null)progress(40,"正在核验官方文件与恢复备份…");
+            Restore(state,progress);
             state.Status="uninstalled"; Util.WriteJson(Util.StatePath(root),state);
-            // Installed mods and their settings are user data: deliberately keep them.
-            // Original backups and receipt also stay available for auditing.
+            if(progress!=null)progress(90,"官方启动器已恢复，正在保留模组与私人数据…");
+            // Preserve installed mods and user settings
+        }
+        public static void PreflightUninstall(string root) { VerifyOwnership(Util.State(root),false); }
+        // Archive residual directory
+        public static string CleanUninstall(string root, Action<int,string> progress=null) {
+            root=Path.GetFullPath(root).TrimEnd('\\');
+            Uninstall(root,progress);
+            var source=Util.Under(root,"ZML");
+            var archive=Util.Under(root,"ZML-uninstalled-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N").Substring(0,8));
+            Directory.Move(source,archive);
+            if(progress!=null)progress(100,"ZML 已卸载，官方启动器已恢复。");
+            return archive;
         }
         public static void UpdateUi(string root, Dictionary<string,byte[]> payload) {
-            // Safe while the launcher is open: the current document remains loaded.
-            // Only existing owned JS/CSS change on disk; next reopen reads them.
+            // Hot-update assets on disk
             root=Path.GetFullPath(root).TrimEnd('\\'); Util.NoLinks(root);
             var state=Util.State(root);
             if(state.Status!="installed") throw new IOException("没有完成的启动器集成");
@@ -97,6 +111,7 @@ namespace ZmlSetup {
         }
         public static void Install(string root, string game, Dictionary<string,byte[]> payload, bool includeMods, int failAfter=Int32.MaxValue, bool validate=true) {
             root=Path.GetFullPath(root).TrimEnd('\\'); game=Path.GetFullPath(game);
+            if(payload.Keys.Any(k=>k.StartsWith("mods\\",StringComparison.OrdinalIgnoreCase))) throw new IOException("安装器不允许携带模组");
             Util.NoLinks(root); Util.NoLinks(game); Util.CheckLauncherClosed(root);
             if(!File.Exists(Util.Under(root,"Launcher.exe"))) throw new IOException("目录中没有 Launcher.exe");
             if(Path.GetFileName(game)!="Endfield.exe" || !File.Exists(game)) throw new IOException("请选择实际的 Endfield.exe");
@@ -119,7 +134,7 @@ namespace ZmlSetup {
                 if(f.Key.StartsWith("web\\",StringComparison.OrdinalIgnoreCase) || f.Key=="ZMLLauncherBridge.exe") continue;
                 if(f.Key.StartsWith("mods\\",StringComparison.OrdinalIgnoreCase)) {
                     if(!includeMods) continue;
-                    // Existing user mods are never overwritten, even on reinstall.
+                    // Preserve existing mods on reinstall
                     var pieces=f.Key.Split('\\');
                     var modDir=Util.Under(root,"ZML\\mods\\"+pieces[1]);
                     if(Directory.Exists(modDir) && Directory.EnumerateFileSystemEntries(modDir).Any()) continue;
@@ -134,7 +149,7 @@ namespace ZmlSetup {
             edits.Add("Launcher.zml-original.exe",File.ReadAllBytes(Util.Under(root,"Launcher.exe")));
             foreach(var page in pages) AddWeb(state,edits,page,payload);
             edits.Add("Launcher.exe",payload["ZMLLauncherBridge.exe"]);
-            // All immutable files are covered by the durable rollback plan. Mods are kept on uninstall.
+            // Backup files before installation
             var batch=Guid.NewGuid().ToString("N");
             foreach(var pair in edits) {
                 var path=Util.Under(root,pair.Key);
@@ -173,13 +188,15 @@ namespace ZmlSetup {
         }
         static void Repair(InstallState state, List<string> pages, Dictionary<string,byte[]> payload, bool upgradeBridge=false, int failAfter=Int32.MaxValue) {
             VerifyOwnership(state,true);
-            // Repair updates only UI assets for the existing schema-1 bridge.
-            // Framework/Mods stay untouched. Bridge changes require explicit closed-launcher upgrade.
+            // Update UI assets for existing installation
             var edits=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
             if(upgradeBridge && Util.HashFile(Util.Under(state.Root,"Launcher.exe"))!=Util.Hash(payload["ZMLLauncherBridge.exe"])) edits["Launcher.exe"]=payload["ZMLLauncherBridge.exe"];
             if(upgradeBridge) {
                 var adapter="ZML\\ZMLNativeLaunch.dll";
                 if(Util.HashFile(Util.Under(state.Root,adapter))!=Util.Hash(payload["ZMLNativeLaunch.dll"])) edits[adapter]=payload["ZMLNativeLaunch.dll"];
+                foreach(var name in new[]{"ZMLUninstall.exe","ZMLLauncherOptions.dll","Qt-LICENSE.txt","ZMLRuntime.dll","ZML.exe","lua\\zml.lua"}) {
+                    if(payload.ContainsKey(name) && Util.HashFile(Util.Under(state.Root,"ZML\\"+name))!=Util.Hash(payload[name])) edits["ZML\\"+name]=payload[name];
+                }
             }
             foreach(var page in pages) {
                 var old=state.Files.FirstOrDefault(f=>f.Path==page);
@@ -202,7 +219,7 @@ namespace ZmlSetup {
                     var path=Util.Under(state.Root,pair.Key); undo[pair.Key]=File.Exists(path)?File.ReadAllBytes(path):null;
                     if(undo[pair.Key]!=null) Util.Atomic(Util.Under(state.Root,updateBackup+pair.Key),undo[pair.Key]);
                     var existing=state.Files.FirstOrDefault(f=>f.Path==pair.Key);
-                    // New official index is now the baseline. Own generated assets can be refreshed.
+                    // Refresh assets with new baseline index
                     if(existing!=null && !pair.Key.EndsWith("index.html")) { existing.After=Util.Hash(pair.Value); }
                     else {
                         if(existing!=null) state.Files.Remove(existing);

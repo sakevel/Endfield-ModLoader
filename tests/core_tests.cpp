@@ -1,5 +1,6 @@
 #include "lua_codec.hpp"
 #include "manifest.hpp"
+#include "version_label.hpp"
 #include <Windows.h>
 #include <filesystem>
 #include <fstream>
@@ -17,6 +18,9 @@ std::string read(const char* path) {
 int main(int argc, char** argv) {
     try {
         using namespace zml;
+        check(version_label("CN_WIN_REL_1.0.14_C1_E2","0.4.0")=="CN_WIN_REL_1.0.14_C1_E2   |   ZML 0.4.0","Native version preserved beside loader version");
+        check(version_label(version_label("native","0.4.0"),"0.4.0")==version_label("native","0.4.0"),"Version label is idempotent");
+        check(version_label("","0.4.0").empty() && version_label(std::string(1025,'x'),"0.4.0")==std::string(1025,'x'),"Invalid version label is not changed");
         for (auto text : {std::string("return 1"), std::string("-- 测试\nreturn '✓'"), std::string("--") + std::string(8191, 'x')}) {
             LuaSource source{text, Envelope::xxtea_base64};
             auto packed = pack_lua(source);

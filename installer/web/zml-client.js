@@ -33,6 +33,7 @@
   const list = panel.querySelector('.zml-list'), status = panel.querySelector('.zml-status'), search = panel.querySelector('input');
   let catalog = null, busy = false, lastRevision = '', filter = 'all', expandedId = null;
   let host = null, forwardNativeClick = false;
+  let lastOptionsTheme = null, optionsRequest = false, optionsAttempt = 0;
   const readyLabels = new Set(['开始游戏', '启动游戏', '进入游戏', 'Start Game', 'Launch Game', 'Start']);
   function isEndfield() { return document.documentElement.classList.contains('theme_endfield'); }
   // Observed native Fv layout: 60px capsule, direct main action + 52px game-options trigger.
@@ -51,6 +52,7 @@
     return matches.length === 1 ? matches[0] : null;
   }
   function mountEntry() {
+    syncOptionsTheme();
     const next = findHost();
     if (host && (!next || host.pill !== next.pill)) {
       host.outer.classList.remove('zml-host-width'); host.outer.style.removeProperty('--zml-native-width'); host.pill.classList.remove('zml-host-pill');
@@ -113,6 +115,15 @@
       if (error.name === 'AbortError') throw new Error('操作超时，请刷新后确认结果，不要重复启动游戏。');
       throw error;
     } finally { clearTimeout(timeout); }
+  }
+  async function syncOptionsTheme() {
+    const value = isEndfield();
+    if (lastOptionsTheme === value || optionsRequest || Date.now() - optionsAttempt < 3000) return;
+    optionsAttempt = Date.now();
+    optionsRequest = true;
+    try { await api('/options-theme', {endfield: value}); lastOptionsTheme = value; }
+    catch (_) { /* Optional native extension failure must not break ordinary launch. */ }
+    finally { optionsRequest = false; }
   }
   function node(tag, className, text) {
     const n = document.createElement(tag); if (className) n.className = className;
@@ -242,4 +253,5 @@
     }
   });
   setInterval(() => { if (!panel.hidden && !busy) refresh(false); }, 4000);
+  setInterval(syncOptionsTheme, 5000);
 })();

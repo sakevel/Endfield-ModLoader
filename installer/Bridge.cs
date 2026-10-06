@@ -29,7 +29,7 @@ namespace ZmlSetup {
                 Task.Run(()=> { try { Handle(client); } finally { client.Close(); slots.Release(); } });
             } catch(SocketException) { if(!stopped) Thread.Sleep(100); } catch(ObjectDisposedException) { if(!stopped) throw; }
         }
-        // Small deliberately bounded HTTP/1.1 subset, one request per socket; no filesystem URLs.
+        // Minimal HTTP/1.1 bridge server implementation
         void Handle(TcpClient client) {
             client.ReceiveTimeout=4000; client.SendTimeout=4000;
             using(var stream=client.GetStream()) try {
@@ -63,6 +63,11 @@ namespace ZmlSetup {
                 if(request[0]=="GET" && request[1]=="/health") result=new {ok=true,schema=1,nativeLaunch=true};
                 else if(request[0]=="GET" && request[1]=="/mods") result=catalog.Listing();
                 else if(request[0]=="POST" && request[1]=="/open-folder") { catalog.OpenFolder(); result=new {ok=true}; }
+                else if(request[0]=="POST" && request[1]=="/options-theme") {
+                    var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(Util.Utf8.GetString(body));
+                    if(data==null || data.Count!=1 || !data.ContainsKey("endfield") || !(data["endfield"] is bool))throw new IOException("主题参数无效");
+                    result=native.Options((bool)data["endfield"]);
+                }
                 else if(request[0]=="POST" && request[1]=="/prepare-launch") {
                     var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(Util.Utf8.GetString(body));
                     if(data==null || data.Count!=0) throw new IOException("启动参数无效");
@@ -109,7 +114,7 @@ namespace ZmlSetup {
                     try {
                         using(var server=new BridgeServer(state)) {
                             StartOriginal(original,root,args);
-                            // Root bootstrap may exit after spawning Games.exe. Keep the service for the actual launcher.
+                            // Keep bridge alive for launcher process
                             Thread.Sleep(30000);
                             int absent=0;
                             while(absent<3) { if(LauncherAlive(root)) absent=0; else absent++; Thread.Sleep(10000); }

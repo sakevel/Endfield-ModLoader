@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(ZML VERSION 0.2.0 LANGUAGES C CXX)
+project(ZML VERSION 0.4.0 LANGUAGES C CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "Windows x64 is required")
 endif()
@@ -20,6 +20,7 @@ add_executable(ZML src/launcher.cpp)
 target_link_libraries(ZML PRIVATE zml_common)
 add_library(ZMLNativeLaunch SHARED src/native_launch.cpp)
 add_library(ZMLRuntime SHARED src/runtime.cpp src/il2cpp.cpp)
+target_compile_definitions(ZMLRuntime PRIVATE ZML_VERSION="${PROJECT_VERSION}")
 target_link_libraries(ZMLRuntime PRIVATE zml_common minhook)
 add_custom_target(package ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/package/$<CONFIG>/lua"
@@ -30,8 +31,12 @@ add_custom_target(package ALL
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/docs/VALIDATION.md" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/docs/VALIDATION.md"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/docs/MOD_API.md" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/docs/MOD_API.md"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minhook/LICENSE.txt" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/MinHook-LICENSE.txt"
-  DEPENDS ZML ZMLRuntime)
+  DEPENDS ZML ZMLRuntime ZMLNativeLaunch)
 enable_testing()
+add_executable(DependencyTests tests/dependency_tests.cpp)
+target_link_libraries(DependencyTests PRIVATE zml_common)
+set_target_properties(DependencyTests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/$<CONFIG>")
+add_test(NAME dependencies COMMAND DependencyTests)
 add_test(NAME mod_install COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/install_mod_tests.ps1" -Installer "${CMAKE_CURRENT_SOURCE_DIR}/tools/install-mod.ps1")
 add_executable(DecodeLua EXCLUDE_FROM_ALL tools/decode_lua.cpp)
@@ -62,7 +67,6 @@ set_target_properties(RejectedRuntime PROPERTIES OUTPUT_NAME ZMLRuntime RUNTIME_
 add_test(NAME injection_e2e COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/injection_e2e.ps1"
   -Launcher "$<TARGET_FILE:ZML>" -Fixture "$<TARGET_FILE:InjectionFixture>" -Rejected "$<TARGET_FILE:RejectedRuntime>")
 set_tests_properties(injection_e2e PROPERTIES DEPENDS core TIMEOUT 70)
-
 add_test(NAME installer COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
   "${CMAKE_CURRENT_SOURCE_DIR}/tools/build-installer.ps1" -SkipFrameworkBuild)
 set_tests_properties(installer PROPERTIES DEPENDS core TIMEOUT 120)

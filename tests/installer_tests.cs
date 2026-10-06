@@ -71,6 +71,10 @@ namespace ZmlSetup {
                     using(var server=new BridgeServer(state)) { Console.WriteLine("FIXTURE "+Path.Combine(area,"web-fixture.json"));Console.Out.Flush();Thread.Sleep(600000); }
                     return 0;
                 }
+                Check(!payload.Keys.Any(k=>k.StartsWith("mods\\",StringComparison.OrdinalIgnoreCase)),"installer payload never carries any Mods");
+                var forbidden=new Dictionary<string,byte[]>(payload,StringComparer.OrdinalIgnoreCase);forbidden["mods\\sample\\mod.ini"]=new byte[]{1};
+                var forbiddenRoot=Fixture(fixture);Fails(()=>InstallEngine.Install(forbiddenRoot,InstallEngine.SuggestedGame(forbiddenRoot),forbidden,true),"legacy bundled payload rejected even with includeMods requested");
+                Check(!File.Exists(Util.StatePath(forbiddenRoot)),"rejected bundle does not create installation state");
                 Check(System.Text.Encoding.UTF8.GetString(payload["ZMLLauncherBridge.exe"]).Contains("requestedExecutionLevel level=\"requireAdministrator\""),"bridge PE requests same administrator level as native launcher");
                 Fails(()=>Util.ProcessImagePath(Int32.MaxValue),"invalid process discovery fails rather than guessing path");
                 var root1=Fixture(fixture);var initial=Util.HashFile(Path.Combine(root1,"Launcher.exe"));var html=Util.HashFile(Path.Combine(root1,"1.6.0","res","web","index.html"));
@@ -169,6 +173,8 @@ namespace ZmlSetup {
                 var validState=File.ReadAllBytes(Util.StatePath(repair));Util.WriteJson(Util.StatePath(repair),forged);
                 Fails(()=>InstallEngine.Uninstall(repair),"forged recovery state cannot touch game files");
                 Util.Atomic(Util.StatePath(repair),validState);
+                var forgedBackup=Util.State(repair);var backupTarget=forgedBackup.Files.First(f=>f.Backup!=null);backupTarget.Backup="ZML\\backups\\..\\..\\games\\Endfield Game\\Endfield.exe";
+                Util.WriteJson(Util.StatePath(repair),forgedBackup);Fails(()=>Util.State(repair),"forged backup cannot escape ZML backup directory");Util.Atomic(Util.StatePath(repair),validState);
                 var uiPayload=new Dictionary<string,byte[]>(payload,StringComparer.OrdinalIgnoreCase);
                 uiPayload["web\\zml-client.css"]=Util.Utf8.GetBytes("/* updated UI */\n");
                 uiPayload["ZMLLauncherBridge.exe"]=new byte[]{9,9,9};
@@ -209,13 +215,36 @@ namespace ZmlSetup {
                     var modHash=comboCatalog.Scan().ToDictionary(m=>m.id,m=>Util.Hash(m.Original));InstallEngine.Uninstall(combo);
                     Check(comboCatalog.Scan().All(m=>Util.Hash(m.Original)==modHash[m.id]),"bundled Mods preserved byte exact after uninstall");
                 }
-                Application.EnableVisualStyles();using(var form=new SetupForm(payload)) {
-                    form.Show();Application.DoEvents();
-                    using(var image=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(image,new Rectangle(0,0,image.Width,image.Height));image.Save(Path.Combine(area,"installer-gui.png"));}
-                    Check(form.Controls.OfType<Button>().Any(b=>b.Visible && b.Text=="安装 / 修复"),"GUI installation control visible");
-                    form.Close();
+                // Headless validation: no Show/DrawToBitmap or desktop GUI operation.
+                using(var form=new SetupForm(payload)) {
+                    Check(form.Controls.OfType<Button>().Any(b=>b.Text=="安装 / 修复"),"installer control declarations present without opening GUI");
+                    Check(!form.Controls.OfType<CheckBox>().Any(),"installer has no bundled-Mod checkbox");
                 }
-                Check(File.Exists(Path.Combine(area,"installer-gui.png")),"real WinForms control render artifact (not interactive UAC proof)");
+                using(var form=new UninstallProgressForm("fixture-root",null)) {
+                    var bar=form.Controls.OfType<ProgressBar>().Single();
+                    Check(bar.Value==0 && !form.Controls.OfType<Button>().Single().Enabled && !form.ControlBox,"uninstall progress window declarations initially prevent transaction interruption");
+                    form.ApplyProgress(new UninstallUpdate(60,"恢复文件"));form.ApplyProgress(new UninstallUpdate(30,"迟到的更新"));
+                    Check(bar.Value==60,"uninstall progress never moves backwards");
+                    form.ApplyProgress(new UninstallUpdate(150,"完成"));Check(bar.Value==100,"uninstall progress clamps to native control range");
+                }
+                var clean=Fixture(fixture);var cleanOriginal=Util.HashFile(Path.Combine(clean,"Launcher.exe"));
+                InstallEngine.Install(clean,InstallEngine.SuggestedGame(clean),payload,false);Mod(clean,"private",false,null);
+                var cleanState=Util.State(clean);var allowed=UninstallProgram.AllowedProcesses(cleanState);
+                Check(allowed.Contains(InstallEngine.SuggestedGame(clean)) && !allowed.Contains(fixture),"uninstall process whitelist includes only registered exact paths");
+                var forgedGame=cleanState.Game;cleanState.Game=fixture;Fails(()=>UninstallProgram.AllowedProcesses(cleanState),"forged game path cannot authorize arbitrary process shutdown");cleanState.Game=forgedGame;
+                Fails(()=>UninstallProgram.ExecuteAsync(clean,null,"changed-receipt").GetAwaiter().GetResult(),"confirmation-time receipt change rejects before any shutdown or restore");
+                var different=Fixture(fixture);
+                using(var child=System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(cleanState.Game){UseShellExecute=false,CreateNoWindow=true,WindowStyle=System.Diagnostics.ProcessWindowStyle.Hidden}))
+                using(var other=System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(InstallEngine.SuggestedGame(different)){UseShellExecute=false,CreateNoWindow=true,WindowStyle=System.Diagnostics.ProcessWindowStyle.Hidden})) try {
+                    UninstallProgram.CloseRegistered(cleanState);
+                    Check(child.HasExited && !other.HasExited,"actual held-handle shutdown closes matching fixture and preserves other installation");
+                }finally{if(!other.HasExited){other.Kill();other.WaitForExit();}}
+                var updates=new List<UninstallUpdate>();var ownerThread=Thread.CurrentThread.ManagedThreadId;bool worker=true;
+                var archived=UninstallProgram.ExecuteAsync(clean,(value,message)=>{worker&=Thread.CurrentThread.ManagedThreadId!=ownerThread;updates.Add(new UninstallUpdate(value,message));}).GetAwaiter().GetResult();
+                Check(worker && updates.Any(u=>u.Percent==15) && updates.Any(u=>u.Percent==35) && updates.Any(u=>u.Percent>40 && u.Percent<90) && updates.Last().Percent==100,"real uninstall reports process/file/archive progress from worker not UI thread");
+                Check(updates.Zip(updates.Skip(1),(a,b)=>a.Percent<=b.Percent).All(v=>v),"actual uninstall stage progress is monotonic");
+                Check(!Directory.Exists(Path.Combine(clean,"ZML")) && Util.HashFile(Path.Combine(clean,"Launcher.exe"))==cleanOriginal,"clean uninstall removes active ZML and byte-exact restores native launcher");
+                Check(File.Exists(Path.Combine(archived,"mods","private","mod.ini")) && !File.Exists(Path.Combine(clean,"Launcher.zml-original.exe")),"clean uninstall archives user Mods and removes integration backup entry");
                 Console.WriteLine("RESULT "+passed+" checks; artifacts "+area);return 0;
             }catch(Exception e){Console.Error.WriteLine(e);return 1;}
         }

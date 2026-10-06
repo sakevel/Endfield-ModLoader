@@ -10,11 +10,14 @@ bool Il2Cpp::connect() {
     BIND(assembly_image_, "assembly_get_image"); BIND(image_name_, "image_get_name");
     BIND(class_named_, "class_from_name"); BIND(methods_, "class_get_methods");
     BIND(method_name_, "method_get_name"); BIND(parameter_count_, "method_get_param_count");
+    BIND(method_flags_, "method_get_flags");
     BIND(parameter_, "method_get_param"); BIND(return_type_, "method_get_return_type");
     BIND(type_name_, "type_get_name"); BIND(free_, "free");
     BIND(string_length_, "string_length"); BIND(string_chars_, "string_chars");
     BIND(string_new_, "string_new"); BIND(invoke_, "runtime_invoke");
     BIND(root_, "gchandle_new"); BIND(unroot_, "gchandle_free");
+    BIND(object_class_, "object_get_class"); BIND(field_named_, "class_get_field_from_name");
+    BIND(field_type_, "field_get_type"); BIND(field_flags_, "field_get_flags"); BIND(field_value_, "field_get_value");
     BIND(attach, "thread_attach"); BIND(detach, "thread_detach");
 #undef BIND
     return true;
@@ -61,6 +64,7 @@ void* Il2Cpp::call(ManagedMethod method, void* object, void** args) {
     if (exception) throw std::runtime_error(std::string("Managed exception in ") + method_name_(method.metadata));
     return result;
 }
+bool Il2Cpp::is_static(ManagedMethod method) const {return method.metadata && (method_flags_(method.metadata,nullptr)&0x10);}
 std::string Il2Cpp::string(void* value, size_t limit) {
     if (!value) return {};
     auto n = string_length_(value);
@@ -70,6 +74,13 @@ std::string Il2Cpp::string(void* value, size_t limit) {
     return out;
 }
 void* Il2Cpp::make_string(const std::string& text) { return string_new_(text.c_str()); }
+void* Il2Cpp::reference_field(void* object, const char* name, const char* expected_type) {
+    if(!object) throw std::runtime_error("Null field owner");
+    auto field=field_named_(object_class_(object),name);
+    if(!field || (field_flags_(field)&0x10) || type(field_type_(field))!=expected_type)
+        throw std::runtime_error("Native UI reference field contract unavailable");
+    void* value=nullptr;field_value_(object,field,&value);return value;
+}
 uint32_t Il2Cpp::protect(void* object) {
     if (!object) return 0;
     auto handle = root_(object, true); // pin until this operation finishes

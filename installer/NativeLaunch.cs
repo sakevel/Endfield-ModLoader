@@ -5,7 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace ZmlSetup {
-    // Loads only our one-shot CreateProcessW IAT adapter; never calls Qt private ABI.
+    // Load CreateProcessW launch adapter
     public sealed class NativeLaunch {
         readonly InstallState state; readonly object gate=new object();
         int pid; string ticket; bool pending;
@@ -29,10 +29,10 @@ namespace ZmlSetup {
                     if(String.Equals(m.FileName,path,StringComparison.OrdinalIgnoreCase)) return m.BaseAddress;
                 return IntPtr.Zero;
             } catch(System.ComponentModel.Win32Exception e) {
-                throw new IOException("无法读取原生启动器模块（Win32 "+e.NativeErrorCode+"），请通过根目录 Launcher.exe 以管理员权限重新打开；权限。",e);
+                throw new IOException("无法读取原生启动器模块（Win32 "+e.NativeErrorCode+"），请以管理员权限运行 Launcher.exe。",e);
             }
         }
-        static uint Call(Process process,IntPtr function,byte[] data) {
+        static uint Call(Process process,IntPtr function,byte[] data,IntPtr raw=default(IntPtr)) {
             var handle=OpenProcess(0x043a,false,process.Id);if(handle==IntPtr.Zero) throw Error("无法接入指定启动器");
             IntPtr memory=IntPtr.Zero,thread=IntPtr.Zero;bool completed=true;
             try {
@@ -40,13 +40,13 @@ namespace ZmlSetup {
                     memory=VirtualAllocEx(handle,IntPtr.Zero,(UIntPtr)data.Length,0x3000,4);if(memory==IntPtr.Zero) throw Error("适配器参数分配失败");
                     UIntPtr written;if(!WriteProcessMemory(handle,memory,data,(UIntPtr)data.Length,out written) || written.ToUInt64()!=(ulong)data.Length) throw Error("适配器参数写入失败");
                 }
-                thread=CreateRemoteThread(handle,IntPtr.Zero,UIntPtr.Zero,function,memory,0,IntPtr.Zero);if(thread==IntPtr.Zero) throw Error("普通 LoadLibrary 接入失败");
+                thread=CreateRemoteThread(handle,IntPtr.Zero,UIntPtr.Zero,function,data==null?raw:memory,0,IntPtr.Zero);if(thread==IntPtr.Zero) throw Error("普通 LoadLibrary 接入失败");
                 completed=WaitForSingleObject(thread,15000)==0;
-                if(!completed) throw new IOException("原生启动适配器超时；未停止启动器，。");
+                if(!completed) throw new IOException("原生启动适配器超时。");
                 uint code;if(!GetExitCodeThread(thread,out code)) throw Error("适配器返回值读取失败");return code;
             } finally {
                 if(thread!=IntPtr.Zero) CloseHandle(thread);
-                // Timed-out call may still read its parameter; retain until launcher exits.
+                // Keep parameter buffer alive
                 if(memory!=IntPtr.Zero && completed) VirtualFreeEx(handle,memory,UIntPtr.Zero,0x8000);
                 CloseHandle(handle);
             }
@@ -58,6 +58,29 @@ namespace ZmlSetup {
             finally {FreeLibrary(local);}
         }
         string Dll {get{return Util.Under(state.Root,"ZML\\ZMLNativeLaunch.dll");}}
+        public object Options(bool enabled) {lock(gate) {
+            var path=Util.Under(state.Root,"ZML\\ZMLLauncherOptions.dll");
+            var owned=state.Files.SingleOrDefault(f=>f.Path=="ZML\\ZMLLauncherOptions.dll");
+            if(owned==null || Util.HashFile(path)!=owned.After)throw new IOException("原生选项扩展需要安装/修复。");
+            using(var process=Launcher()) {
+                if(Module(process,path)==IntPtr.Zero) {
+                    var loader=GetProcAddress(GetModuleHandle("kernel32.dll"),"LoadLibraryW");
+                    ProcessModule owner=null;using(var self=Process.GetCurrentProcess()) foreach(ProcessModule m in self.Modules)
+                        if(loader.ToInt64()>=m.BaseAddress.ToInt64() && loader.ToInt64()<m.BaseAddress.ToInt64()+m.ModuleMemorySize){owner=m;break;}
+                    if(owner==null)throw new IOException("系统加载模块不可用");
+                    var remote=Module(process,owner.FileName);if(remote==IntPtr.Zero)throw new IOException("目标加载模块不可用");
+                    Call(process,new IntPtr(remote.ToInt64()+loader.ToInt64()-owner.BaseAddress.ToInt64()),System.Text.Encoding.Unicode.GetBytes(path+"\0"));
+                }
+                var baseAddress=Module(process,path);if(baseAddress==IntPtr.Zero)throw new IOException("Qt 原生选项接口不可用");
+                var local=LoadLibraryEx(path,IntPtr.Zero,1);if(local==IntPtr.Zero)throw Error("选项导出解析失败");
+                try {
+                    var f=GetProcAddress(local,"ZML_SetOptionsEnabled");if(f==IntPtr.Zero)throw new IOException("选项扩展版本不兼容");
+                    var result=Call(process,new IntPtr(baseAddress.ToInt64()+f.ToInt64()-local.ToInt64()),null,new IntPtr(enabled?1:0));
+                    if(result!=0)throw new IOException("原生选项接入失败（Win32 "+result+"）");
+                }finally{FreeLibrary(local);}
+            }
+            return new {ok=true};
+        }}
         Process Launcher() {
             var paths=state.Files.Where(f=>f.Path.EndsWith("\\res\\web\\index.html",StringComparison.OrdinalIgnoreCase))
                 .Select(f=>Util.Under(state.Root,f.Path.Split('\\')[0]+"\\Games.exe")).ToArray();
@@ -85,7 +108,7 @@ namespace ZmlSetup {
             if(runtimeOwned==null || Util.HashFile(Util.Under(state.Root,runtimeOwned.Path))!=runtimeOwned.After) throw new IOException("运行时文件已被更改，请先安装/修复");
             Util.Validate(state.Root,state.Game);
             foreach(var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(state.Game))) using(p) {
-                throw new IOException("客户端已在运行，请先退出；未停止任何进程。");
+                throw new IOException("客户端已在运行，请先退出。");
             }
             using(var process=Launcher()) {
                 if(Module(process,Dll)==IntPtr.Zero) {

@@ -21,7 +21,7 @@ namespace ZmlSetup {
         [System.Runtime.InteropServices.DllImport("kernel32.dll",SetLastError=true)] static extern IntPtr OpenProcess(uint access,bool inherit,int pid);
         [System.Runtime.InteropServices.DllImport("kernel32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode,SetLastError=true)] static extern bool QueryFullProcessImageName(IntPtr process,uint flags,StringBuilder path,ref uint size);
         [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-        // Discovery does not require reading an elevated process's modules/VM.
+        // Query process image name
         public static string ProcessImagePath(int pid) {
             var handle=OpenProcess(0x1000,false,pid); // PROCESS_QUERY_LIMITED_INFORMATION
             if(handle==IntPtr.Zero) throw new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error());
@@ -80,7 +80,7 @@ namespace ZmlSetup {
                 DataReceivedEventHandler receive = (s,e) => { if (e.Data!=null) lock(gate) { if(output.Length<65536) output.AppendLine(e.Data); } };
                 p.OutputDataReceived+=receive; p.ErrorDataReceived+=receive;
                 p.Start(); p.BeginOutputReadLine(); p.BeginErrorReadLine();
-                if (!p.WaitForExit(seconds*1000)) { p.Kill(); throw new IOException("加载器超时；的加载器进程，。"); }
+                if (!p.WaitForExit(seconds*1000)) { p.Kill(); throw new IOException("加载器超时。"); }
                 p.WaitForExit();
                 if (p.ExitCode!=0) throw new IOException(output.ToString().Trim());
                 return output.ToString().Trim();
@@ -91,12 +91,12 @@ namespace ZmlSetup {
             var state=ReadJson<InstallState>(StatePath(root));
             if (state==null || state.Schema!=1 || !String.Equals(Path.GetFullPath(root).TrimEnd('\\'), state.Root, StringComparison.OrdinalIgnoreCase) || state.Port<1024 || state.Port>65535 || state.Token==null || !System.Text.RegularExpressions.Regex.IsMatch(state.Token,"^[0-9a-f]{64}$") || state.Files==null || state.Files.Count>256) throw new IOException("安装状态无效");
             var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var known=new[]{"Launcher.exe","Launcher.zml-original.exe","ZML\\ZML.exe","ZML\\ZMLRuntime.dll","ZML\\ZMLNativeLaunch.dll","ZML\\README.md","ZML\\MinHook-LICENSE.txt","ZML\\loader.ini.example","ZML\\loader.ini","ZML\\lua\\zml.lua","ZML\\docs\\MOD_API.md","ZML\\INSTALLER.md"};
+            var known=new[]{"Launcher.exe","Launcher.zml-original.exe","ZML\\ZML.exe","ZML\\ZMLRuntime.dll","ZML\\ZMLNativeLaunch.dll","ZML\\ZMLLauncherOptions.dll","ZML\\ZMLUninstall.exe","ZML\\Qt-LICENSE.txt","ZML\\README.md","ZML\\MinHook-LICENSE.txt","ZML\\loader.ini.example","ZML\\loader.ini","ZML\\lua\\zml.lua","ZML\\docs\\MOD_API.md","ZML\\INSTALLER.md"};
             var digest=new System.Text.RegularExpressions.Regex("^[0-9a-f]{64}$");
             foreach(var f in state.Files) {
-                // Even a forged state file must never grant the elevated uninstaller access to game/user files.
+                // Validate uninstaller state path
                 if(f==null || f.Path==null || !seen.Add(f.Path) || (!known.Contains(f.Path,StringComparer.OrdinalIgnoreCase) && !System.Text.RegularExpressions.Regex.IsMatch(f.Path,@"^\d+\.\d+\.\d+(\.\d+)?\\res\\web\\(index\.html|zml-client\.js|zml-client\.css|zml-endpoint\.js)$")) || f.After==null || !digest.IsMatch(f.After) || (f.Before==null)!=(f.Backup==null) || (f.Before!=null && (!digest.IsMatch(f.Before) || !f.Backup.StartsWith("ZML\\backups\\",StringComparison.Ordinal)))) throw new IOException("恢复计划路径/校验无效");
-                Under(root,f.Path); if(f.Backup!=null) Under(root,f.Backup);
+                Under(root,f.Path); if(f.Backup!=null && !Under(root,f.Backup).StartsWith(Under(root,"ZML\\backups")+"\\",StringComparison.OrdinalIgnoreCase))throw new IOException("备份路径越界");
             }
             return state;
         }
@@ -106,11 +106,11 @@ namespace ZmlSetup {
         public static void CheckLauncherClosed(string root) {
             var prefix=Path.GetFullPath(root).TrimEnd('\\')+"\\";
             foreach(var p in Process.GetProcesses()) using(p) {
-                // Only inspect likely launcher processes, never stop any process.
+                // Check running launcher processes
                 if (!new[]{"Launcher","Launcher.zml-original","Games","QtWebEngineProcess"}.Contains(p.ProcessName, StringComparer.OrdinalIgnoreCase)) continue;
                 try {
                     var path=ProcessImagePath(p.Id);
-                    // Game-owned WebEngine helpers are not the launcher and must stay running.
+                    // Skip helper subprocesses
                     if(path.StartsWith(prefix+"games\\",StringComparison.OrdinalIgnoreCase)) continue;
                     if(path.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)) throw new IOException("请先退出鹰角启动器（PID " + p.Id + "），安装器不会自动关闭进程。");
                 } catch(System.ComponentModel.Win32Exception) { throw new IOException("无法确认启动器已退出，请退出启动器后重试。"); }

@@ -3,7 +3,9 @@
 #include "lua_codec.hpp"
 #include "manifest.hpp"
 #include "mod_services.hpp"
+#include "lua_modules.hpp"
 #include "win_util.hpp"
+#include "version_label.hpp"
 #include <MinHook.h>
 #include <chrono>
 #include <fstream>
@@ -27,6 +29,8 @@ struct Runtime {
     std::vector<std::unique_ptr<Mod>> mods;
     std::vector<Transform> transforms;
     ModServices services;
+    LuaModules modules;
+    Mod* starting = nullptr;
     std::mutex log_mutex;
     std::filesystem::path log_path;
     void* (*original)(void*, void*, const void*) = nullptr;
@@ -39,8 +43,31 @@ struct Runtime {
         stream << stamp << " [" << who << "] " << message << '\n';
     }
 };
-// Intentionally process-lifetime; never tear down hooks or STL under loader lock.
+// Process-lifetime runtime instance
 Runtime* rt = nullptr;
+void (*version_start_original)(void*,const void*)=nullptr;
+ManagedMethod version_text_get,version_text_set;
+void version_start(void* panel,const void* method) {
+    version_start_original(panel,method);
+    try {
+        auto text=rt->api.reference_field(panel,"_textVersion","Beyond.UI.UIText");
+        if(!text)return;
+        ManagedRoot text_root(rt->api,text);
+        auto original=rt->api.call(version_text_get,text);
+        ManagedRoot original_root(rt->api,original);
+        auto current=rt->api.string(original,1024);
+        auto display=version_label(current,ZML_VERSION);
+        if(current==display)return;
+        auto replacement=rt->api.make_string(display);ManagedRoot replacement_root(rt->api,replacement);
+        void* args[]{replacement};rt->api.call(version_text_set,text,args);
+        rt->log("runtime","Native login version label updated");
+    } catch(const std::exception&) {rt->log("runtime","Login version label unavailable");}
+}
+int register_source(void* owner,ZmlLuaSource source,void* data) {
+    if (!rt || !rt->starting || owner!=rt->starting || !rt->starting->initializing) return 0;
+    try {return rt->modules.add(rt->starting->info.id,source,data)?1:0;} catch(...) {return 0;}
+}
+const ZmlLuaServicesV1 lua_services{sizeof(ZmlLuaServicesV1),1,register_source};
 void mod_log(void* owner, const char* message) {
     auto mod = static_cast<Mod*>(owner);
     rt->log(mod->info.id, message ? message : "");
@@ -68,7 +95,7 @@ void* patched_load(void* object, void* path, const void* method) {
         auto name = rt->api.string(path, 4096);
         if (name.ends_with(".lua")) name.resize(name.size() - 4);
         if (name.starts_with("ZML/")) {
-            auto source = rt->services.module(name);
+            auto source = name.starts_with("ZML/Mod/") ? rt->modules.module(name) : rt->services.module(name);
             if (name.starts_with("ZML/Report/") && source == "return {ok=true}") rt->log("lua-event", name.substr(11));
             auto text = rt->api.make_string(pack_lua({source, Envelope::xxtea_base64}));
             ManagedRoot text_root(rt->api, text);
@@ -79,7 +106,7 @@ void* patched_load(void* object, void* path, const void* method) {
         }
     } catch (const std::exception& error) {
         rt->log("runtime", std::string("Loader service failed: ") + error.what());
-        // Do not pass a reserved virtual path into the game's VFS after failure.
+        // Handle virtual path lookup error
         try { if (rt->api.string(path, 4096).starts_with("ZML/")) return nullptr; } catch (...) {}
     }
     void* bytes = rt->original(object, path, method);
@@ -116,19 +143,21 @@ void* patched_load(void* object, void* path, const void* method) {
         void* encode_args[]{replacement_text};
         auto replacement = rt->api.call(rt->encode, encoding, encode_args);
         if (!replacement) throw std::runtime_error("Encoding returned null");
-        rt->log("runtime", "Returning patched " + name + " in original resource envelope");
+        rt->log("runtime", "Patched " + name);
         return replacement;
     } catch (const std::exception& error) {
-        rt->log("runtime", std::string("Lua transform failed; original payload preserved: ") + error.what());
+        rt->log("runtime", std::string("Lua transform failed: ") + error.what());
         return bytes;
     } catch (...) {
-        rt->log("runtime", "Unknown transform failure; original payload preserved");
+        rt->log("runtime", "Lua transform failed: unknown error");
         return bytes;
     }
 }
 void load_mods(const std::filesystem::path& root) {
+    std::vector<std::string> loaded;
     for (auto& manifest : discover(root / L"mods")) {
         if (!manifest.enabled) { rt->log(manifest.id, "Disabled by mod.ini"); continue; }
+        if (!dependencies_loaded(manifest,loaded)) {rt->log(manifest.id,"Skipped: required dependency failed initialization");continue;}
         auto mod = std::make_unique<Mod>();
         mod->info = std::move(manifest);
         mod->directory = utf8(mod->info.directory.wstring());
@@ -147,17 +176,21 @@ void load_mods(const std::filesystem::path& root) {
             if (!plugin || plugin->size != sizeof(ZmlPlugin) || plugin->abi != 1 || !plugin->id || plugin->id != mod->info.id || !plugin->start)
                 throw std::runtime_error("Plugin ABI/id mismatch");
             mod->initializing = true;
+            rt->starting = mod.get();
             if (!plugin->start(&mod->host)) throw std::runtime_error("Plugin initialization rejected");
             mod->initializing = false;
+            rt->starting = nullptr;
             rt->services.publish(std::move(record));
+            loaded.push_back(mod->info.id);
             rt->log(mod->info.id, "Loaded " + utf8(mod->info.library.filename().wstring()));
         } catch (const std::exception& error) {
             mod->initializing = false;
+            rt->starting = nullptr;
+            rt->modules.remove(mod->info.id);
             rt->transforms.resize(checkpoint);
             rt->log(mod->info.id, error.what());
         }
-        // Retain failed native DLLs too: their code may have created private
-        // resources. v1 has no unsafe hot-unload / cleanup under loader lock.
+        // Keep loaded DLL handle in list
         rt->mods.push_back(std::move(mod));
     }
 }
@@ -168,14 +201,13 @@ DWORD WINAPI initialize(void*) {
         rt = new Runtime;
         std::filesystem::create_directories(state_root());
         rt->log_path = state_root() / L"runtime.log";
-        rt->log("runtime", "ZML 0.2.0 loaded; independent runtime waiting for GameAssembly");
+        rt->log("runtime", "ZML " ZML_VERSION " loaded; waiting for GameAssembly");
         auto deadline = GetTickCount64() + 120000;
         while (!GetModuleHandleW(L"GameAssembly.dll")) {
             if (GetTickCount64() >= deadline) throw std::runtime_error("GameAssembly wait timed out");
             Sleep(250);
         }
-        // Module visibility precedes GC initialization in this client. The
-        // injected worker must not attach immediately on seeing the DLL.
+        // Wait for runtime initialization before attaching thread
         Sleep(3000);
         if (!rt->api.connect()) throw std::runtime_error("IL2CPP export contract unavailable");
         while (!rt->api.domain()) {
@@ -205,13 +237,22 @@ DWORD WINAPI initialize(void*) {
         auto created = MH_CreateHook(rt->load.entry, reinterpret_cast<void*>(&patched_load), reinterpret_cast<void**>(&rt->original));
         if (created != MH_OK) throw std::runtime_error("LoadLua hook creation failed");
         if (MH_EnableHook(rt->load.entry) != MH_OK) { MH_RemoveHook(rt->load.entry); throw std::runtime_error("LoadLua hook enable failed"); }
-        rt->log("runtime", "Ready: " + std::to_string(rt->transforms.size()) + " Lua transform(s); worker detaching");
+        auto version_start_method=rt->api.method("Entry.Beyond.dll","Beyond.Login","LoginVersionPanel","Start","System.Void",{});
+        version_text_get=rt->api.method("UI.Beyond.dll","Beyond.UI","UIText","get_text","System.String",{});
+        version_text_set=rt->api.method("UI.Beyond.dll","Beyond.UI","UIText","set_text","System.Void",{"System.String"});
+        if(version_start_method.entry && version_text_get.entry && version_text_set.entry &&
+           !rt->api.is_static(version_start_method) && !rt->api.is_static(version_text_get) && !rt->api.is_static(version_text_set) &&
+           MH_CreateHook(version_start_method.entry,reinterpret_cast<void*>(&version_start),reinterpret_cast<void**>(&version_start_original))==MH_OK) {
+            if(MH_EnableHook(version_start_method.entry)!=MH_OK) {MH_RemoveHook(version_start_method.entry);rt->log("runtime","Login version hook unavailable");}
+        } else rt->log("runtime","Login version metadata contract unavailable");
+        rt->log("runtime", "Ready: " + std::to_string(rt->transforms.size()) + " Lua transform(s)");
     } catch (const std::exception& error) {
         if (rt && !rt->log_path.empty()) rt->log("runtime", std::string("Startup failed: ") + error.what());
     }
     return 0;
 }
 }
+extern "C" __declspec(dllexport) const ZmlLuaServicesV1* ZML_GetLuaServicesV1() {return &lua_services;}
 BOOL WINAPI DllMain(HINSTANCE module, DWORD event, LPVOID) {
     if (event == DLL_PROCESS_ATTACH) {
         instance = module;
