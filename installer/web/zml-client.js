@@ -27,12 +27,14 @@
   panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-labelledby', 'zml-title'); panel.setAttribute('data-clickable', 'true');
   panel.innerHTML = '<header><h2 id="zml-title">' + getRandomFullName() + '</h2><button class="zml-close" aria-label="关闭模组面板"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 4L4 12M4 4l8 8"/></svg></button></header>' +
-    '<div class="zml-tools"><input type="search" placeholder="搜索名称、标签或作者" aria-label="搜索模组"><button data-action="refresh" aria-label="刷新模组">刷新</button><button data-action="folder">模组文件夹</button></div>' +
+    '<div class="zml-tools"><input type="search" placeholder="搜索名称、标签或作者" aria-label="搜索模组"><button data-action="get-mods" aria-label="获取模组">获取模组</button><button data-action="refresh" aria-label="刷新模组">刷新</button><button data-action="folder">模组文件夹</button></div>' +
     '<nav class="zml-filters" aria-label="模组筛选"><button data-filter="all">全部</button><button data-filter="enabled">启用</button><button data-filter="disabled">禁用</button></nav>' +
     '<div class="zml-list"></div><div class="zml-status" role="status"></div>';
   document.body.appendChild(launcherButton); layer.appendChild(panel); document.body.appendChild(layer);
   const list = panel.querySelector('.zml-list'), status = panel.querySelector('.zml-status'), search = panel.querySelector('input');
   let catalog = null, busy = false, lastRevision = '', filter = 'all', expandedId = null;
+  let viewMode = 'installed', remoteIndex = null, remoteFilter = 'all';
+  const downloadingIds = new Set();
   let host = null, forwardNativeClick = false;
   let lastOptionsTheme = null, optionsRequest = false, optionsRetry = 0, optionsRetryTheme = null, optionsDelay = 250;
   const readyLabels = new Set(['开始游戏', '启动游戏', '进入游戏', 'Start Game', 'Launch Game', 'Start']);
@@ -142,18 +144,24 @@
     if (text != null) n.textContent = text; return n;
   }
   function draw() {
+    if (viewMode === 'installed') drawInstalled();
+    else drawRemote();
+  }
+  function drawInstalled() {
     if (!catalog) return;
     const scroll = list.scrollTop; list.textContent = '';
-    const q = search.value.toLocaleLowerCase();
+    const q = search.value.trim().toLocaleLowerCase();
     const rows = catalog.mods.filter(m => [m.name, m.id, m.authors, m.description, ...(m.tags || [])].join(' ').toLocaleLowerCase().includes(q) &&
       (filter === 'all' || (filter === 'enabled' ? m.enabled : !m.enabled)));
-    panel.querySelectorAll('[data-filter]').forEach(button => {
+    const filterNav = panel.querySelector('.zml-filters');
+    filterNav.innerHTML = '<button data-filter="all">全部</button><button data-filter="enabled">启用</button><button data-filter="disabled">禁用</button>';
+    filterNav.querySelectorAll('[data-filter]').forEach(button => {
       const kind = button.dataset.filter;
       const count = catalog.mods.filter(m => kind === 'all' || (kind === 'enabled' ? m.enabled : !m.enabled)).length;
       button.textContent = ({all: '全部', enabled: '启用', disabled: '禁用'})[kind] + ' (' + count + ')';
       button.setAttribute('aria-pressed', String(filter === kind));
     });
-    if (!rows.length) list.appendChild(node('div', 'zml-empty', catalog.mods.length ? '没有匹配的模组。' : '尚未安装模组。点击“模组文件夹”，将模组目录放入其中，然后刷新。'));
+    if (!rows.length) list.appendChild(node('div', 'zml-empty', catalog.mods.length ? '没有匹配的模组。' : '尚未安装模组。点击“模组文件夹”，将模组放入其中，或点击“获取模组”在线安装。'));
     rows.forEach((mod, index) => {
       const row = node('article', 'zml-mod'); row.classList.toggle('zml-disabled', !mod.enabled);
       const summary = node('button', 'zml-summary'); summary.type = 'button';
@@ -183,6 +191,129 @@
       toggle.addEventListener('change', () => change(mod, toggle.checked)); list.appendChild(row);
     });
     list.scrollTop = scroll;
+  }
+  function drawRemote() {
+    const scroll = list.scrollTop; list.textContent = '';
+    const q = search.value.trim().toLocaleLowerCase();
+    const installedMap = new Map((catalog ? catalog.mods : []).map(m => [m.id, m]));
+    const remoteMods = (remoteIndex && remoteIndex.mods) || [];
+    const filterNav = panel.querySelector('.zml-filters');
+    filterNav.innerHTML = '<button data-filter="all">全部</button><button data-filter="uninstalled">未安装</button><button data-filter="installed">已安装</button>';
+    const allCount = remoteMods.length;
+    const installedCount = remoteMods.filter(m => installedMap.has(m.id)).length;
+    const uninstalledCount = remoteMods.filter(m => !installedMap.has(m.id)).length;
+    filterNav.querySelectorAll('[data-filter]').forEach(button => {
+      const kind = button.dataset.filter;
+      const count = kind === 'all' ? allCount : kind === 'installed' ? installedCount : uninstalledCount;
+      button.textContent = ({all: '全部', uninstalled: '未安装', installed: '已安装'})[kind] + ' (' + count + ')';
+      button.setAttribute('aria-pressed', String(remoteFilter === kind));
+    });
+    if (!remoteIndex) {
+      list.appendChild(node('div', 'zml-empty', busy ? '正在获取模组索引...' : '未能获取模组列表，请点击“刷新”重试。'));
+      return;
+    }
+    const rows = remoteMods.filter(m => {
+      const isInst = installedMap.has(m.id);
+      if (remoteFilter === 'installed' && !isInst) return false;
+      if (remoteFilter === 'uninstalled' && isInst) return false;
+      if (!q) return true;
+      const hay = [m.name, m.display_title || '', m.id, m.authors || '', m.description || '', ...(m.tags || [])].join(' ').toLocaleLowerCase();
+      return hay.includes(q);
+    });
+    if (!rows.length) {
+      list.appendChild(node('div', 'zml-empty', '没有匹配的模组。'));
+      return;
+    }
+    rows.forEach((mod, index) => {
+      const row = node('article', 'zml-mod zml-mod-remote');
+      const summary = node('button', 'zml-summary'); summary.type = 'button';
+      summary.setAttribute('aria-label', '查看 ' + mod.name + ' 详情'); summary.setAttribute('aria-expanded', String(expandedId === mod.id));
+      summary.setAttribute('aria-controls', 'zml-remote-detail-' + index);
+      if (mod.icon && /^data:image\/png;base64,/.test(mod.icon)) {
+        const image = node('img', 'zml-icon'); image.src = mod.icon; image.alt = ''; summary.appendChild(image);
+      } else { const fallback = node('span', 'zml-icon zml-fallback'); fallback.innerHTML = gridIcon; summary.appendChild(fallback); }
+      const info = node('span', 'zml-info');
+      const title = node('span', 'zml-title');
+      const modTitle = mod.name + (mod.display_title ? ' · ' + mod.display_title : '');
+      title.appendChild(node('b', '', modTitle));
+      title.appendChild(node('span', 'zml-version', mod.version ? 'v' + mod.version : '无版本号'));
+      info.appendChild(title);
+      const line = node('span', 'zml-description');
+      line.appendChild(node('span', 'zml-tags-inline', (mod.tags || []).join(' · ') + ((mod.tags || []).length ? '  ' : '')));
+      line.appendChild(node('span', '', mod.description || '此模组未提供简介。'));
+      info.appendChild(line);
+      summary.appendChild(info);
+      row.appendChild(summary);
+
+      const localMod = installedMap.get(mod.id);
+      if (downloadingIds.has(mod.id)) {
+        const btn = node('button', 'zml-btn-action', '安装中...');
+        btn.disabled = true; row.appendChild(btn);
+      } else if (localMod) {
+        if (localMod.version === mod.version) {
+          const badge = node('span', 'zml-badge-installed', '已安装');
+          row.appendChild(badge);
+        } else {
+          const btn = node('button', 'zml-btn-action', '更新');
+          btn.addEventListener('click', (e) => { e.stopPropagation(); installRemoteMod(mod); });
+          row.appendChild(btn);
+        }
+      } else {
+        const btn = node('button', 'zml-btn-action', '下载');
+        btn.addEventListener('click', (e) => { e.stopPropagation(); installRemoteMod(mod); });
+        row.appendChild(btn);
+      }
+
+      const detail = node('div', 'zml-detail'); detail.id = 'zml-remote-detail-' + index; detail.hidden = expandedId !== mod.id;
+      detail.appendChild(node('p', '', mod.description || '此模组未提供简介。'));
+      detail.appendChild(node('div', 'zml-author', '作者：' + (mod.authors || '未提供') + ' · ID：' + mod.id));
+      const tags = node('div', 'zml-tags'); (mod.tags || []).forEach(t => tags.appendChild(node('span', '', t))); detail.appendChild(tags);
+      if (mod.depends && mod.depends.length) detail.appendChild(node('div', 'zml-deps', '依赖：' + mod.depends.join(' · ')));
+      if (mod.repo_url) {
+        const link = node('a', 'zml-link', '查看仓库 ↗');
+        link.href = mod.repo_url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+        detail.appendChild(link);
+      }
+      row.appendChild(detail);
+
+      summary.addEventListener('click', () => {
+        expandedId = expandedId === mod.id ? null : mod.id; draw();
+        const target = [...list.querySelectorAll('.zml-summary')].find(n => n.getAttribute('aria-label') === '查看 ' + mod.name + ' 详情');
+        if (target) target.focus();
+      });
+      list.appendChild(row);
+    });
+    list.scrollTop = scroll;
+  }
+  async function installRemoteMod(mod) {
+    if (busy || downloadingIds.has(mod.id)) return;
+    downloadingIds.add(mod.id);
+    draw();
+    say('正在下载并安装 ' + mod.name + '...');
+    try {
+      catalog = await api('/install-remote', { id: mod.id, asset_url: mod.asset_url, sha256: mod.sha256 });
+      lastRevision = catalog.revision;
+      say('已成功安装 ' + mod.name + '！');
+    } catch (error) {
+      say(error.message, true);
+    } finally {
+      downloadingIds.delete(mod.id);
+      draw();
+    }
+  }
+  async function refreshRemoteIndex(force) {
+    if (busy) return;
+    setBusy(true);
+    say('正在加载模组索引...');
+    try {
+      remoteIndex = await api('/index');
+      say('');
+    } catch (error) {
+      say(error.message, true);
+    } finally {
+      setBusy(false);
+      draw();
+    }
   }
   async function refresh(force) {
     if (busy) return;
@@ -217,10 +348,49 @@
   });
   panel.querySelector('.zml-close').addEventListener('click', () => closePanel());
   layer.addEventListener('click', e => { if (e.target === layer) closePanel(); });
-  panel.querySelector('[data-action="refresh"]').addEventListener('click', () => refresh(true));
-  panel.querySelector('[data-action="folder"]').addEventListener('click', async () => { try { await api('/open-folder', {}); } catch (error) { say(error.message, true); } });
+
+  const getModsBtn = panel.querySelector('[data-action="get-mods"]');
+  const refreshBtn = panel.querySelector('[data-action="refresh"]');
+  const folderBtn = panel.querySelector('[data-action="folder"]');
+
+  getModsBtn.addEventListener('click', async () => {
+    if (viewMode === 'installed') {
+      viewMode = 'remote';
+      getModsBtn.textContent = '已安装模组';
+      getModsBtn.classList.add('zml-btn-active');
+      search.placeholder = '搜索索引模组名称、标签或作者';
+      search.value = '';
+      expandedId = null;
+      if (!remoteIndex) {
+        await refreshRemoteIndex(true);
+      } else {
+        draw();
+      }
+    } else {
+      viewMode = 'installed';
+      getModsBtn.textContent = '获取模组';
+      getModsBtn.classList.remove('zml-btn-active');
+      search.placeholder = '搜索名称、标签或作者';
+      search.value = '';
+      expandedId = null;
+      draw();
+    }
+  });
+
+  refreshBtn.addEventListener('click', () => {
+    if (viewMode === 'installed') refresh(true);
+    else refreshRemoteIndex(true);
+  });
+  folderBtn.addEventListener('click', async () => { try { await api('/open-folder', {}); } catch (error) { say(error.message, true); } });
   search.addEventListener('input', draw);
-  panel.querySelectorAll('[data-filter]').forEach(button => button.addEventListener('click', () => { filter = button.dataset.filter; expandedId = null; draw(); }));
+  panel.querySelector('.zml-filters').addEventListener('click', (e) => {
+    const button = e.target.closest('button[data-filter]');
+    if (!button) return;
+    if (viewMode === 'installed') filter = button.dataset.filter;
+    else remoteFilter = button.dataset.filter;
+    expandedId = null;
+    draw();
+  });
   async function launch() {
     if (busy) return; setBusy(true); say('');
     let ticket = null;

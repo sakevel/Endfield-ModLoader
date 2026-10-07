@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Text.RegularExpressions;
+using System.Web.Script.Serialization;
 
 namespace ZmlSetup {
     public class ModRow {
@@ -125,5 +128,204 @@ namespace ZmlSetup {
             File.Delete(journal);
         }
         public void OpenFolder() { System.Diagnostics.Process.Start("explorer.exe",Util.Quote(ModsRoot)); }
+        static void SafeDelete(string dir) {
+            if (!Directory.Exists(dir)) return;
+            try {
+                foreach (var file in Directory.GetFiles(dir, "*", SearchOption.AllDirectories)) {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+                Directory.Delete(dir, true);
+            } catch {}
+        }
+        public object GetIndex(string url = null) {
+            lock(gate) {
+                string targetUrl = string.IsNullOrEmpty(url) ? "https://raw.githubusercontent.com/sakevel/Endfield-ModIndex/main/index.json" : url;
+                string json = null;
+                if (targetUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || targetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) {
+                    try {
+                        var req = (HttpWebRequest)WebRequest.Create(targetUrl);
+                        req.Timeout = 5000;
+                        req.ReadWriteTimeout = 5000;
+                        req.UserAgent = "ZML-Client";
+                        using (var resp = req.GetResponse())
+                        using (var stream = resp.GetResponseStream())
+                        using (var reader = new StreamReader(stream, Util.Utf8)) {
+                            json = reader.ReadToEnd();
+                        }
+                        if (!string.IsNullOrEmpty(json)) {
+                            try {
+                                var cachePath = Util.Under(State.Root, "ZML\\index-cache.json");
+                                Util.Atomic(cachePath, Util.Utf8.GetBytes(json));
+                            } catch {}
+                        }
+                    } catch {
+                        json = null;
+                    }
+                } else if (File.Exists(targetUrl)) {
+                    json = File.ReadAllText(targetUrl, Util.Utf8);
+                }
+
+                if (string.IsNullOrEmpty(json)) {
+                    string userProjects = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "CLionProjects");
+                    string devPath = Path.Combine(userProjects, "Endfield-ModIndex", "index.json");
+                    string cachePath = Path.Combine(State.Root, "ZML\\index-cache.json");
+                    if (File.Exists(devPath)) {
+                        json = File.ReadAllText(devPath, Util.Utf8);
+                    } else if (File.Exists(cachePath)) {
+                        json = File.ReadAllText(cachePath, Util.Utf8);
+                    }
+                }
+
+                if (string.IsNullOrEmpty(json)) {
+                    throw new IOException("无法获取模组索引，请检查网络连接");
+                }
+
+                var serializer = new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 };
+                return serializer.Deserialize<object>(json);
+            }
+        }
+        public object InstallRemote(string id, string assetUrl, string sha256) {
+            lock(gate) {
+                if (!ValidId(id)) throw new IOException("模组 id 无效");
+                byte[] zipBytes = null;
+                if (!string.IsNullOrEmpty(assetUrl) && (assetUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || assetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))) {
+                    try {
+                        var req = (HttpWebRequest)WebRequest.Create(assetUrl);
+                        req.Timeout = 15000;
+                        req.ReadWriteTimeout = 30000;
+                        req.UserAgent = "ZML-Client";
+                        using (var resp = req.GetResponse())
+                        using (var ms = new MemoryStream()) {
+                            using (var stream = resp.GetResponseStream()) {
+                                byte[] buffer = new byte[16384];
+                                int read;
+                                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0) {
+                                    ms.Write(buffer, 0, read);
+                                }
+                            }
+                            zipBytes = ms.ToArray();
+                        }
+                    } catch {
+                        zipBytes = null;
+                    }
+                } else if (!string.IsNullOrEmpty(assetUrl) && File.Exists(assetUrl)) {
+                    zipBytes = File.ReadAllBytes(assetUrl);
+                }
+
+                if (zipBytes == null && !string.IsNullOrEmpty(assetUrl)) {
+                    string fileName = null;
+                    try {
+                        var uri = new Uri(assetUrl);
+                        fileName = Path.GetFileName(uri.LocalPath);
+                    } catch {
+                        fileName = Path.GetFileName(assetUrl);
+                    }
+                    if (!string.IsNullOrEmpty(fileName)) {
+                        string userProjects = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "CLionProjects");
+                        if (Directory.Exists(userProjects)) {
+                            foreach (var repoDir in Directory.GetDirectories(userProjects)) {
+                                var candidate = Path.Combine(repoDir, "dist", fileName);
+                                if (File.Exists(candidate)) {
+                                    zipBytes = File.ReadAllBytes(candidate);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (zipBytes == null || zipBytes.Length == 0) {
+                    throw new IOException("下载模组失败，请检查网络连接");
+                }
+
+                if (!string.IsNullOrEmpty(sha256)) {
+                    var hash = Util.Hash(zipBytes);
+                    if (!string.Equals(hash, sha256, StringComparison.OrdinalIgnoreCase)) {
+                        throw new IOException("模组包 SHA-256 校验失败");
+                    }
+                }
+
+                Util.NoLinks(ModsRoot);
+                Directory.CreateDirectory(ModsRoot);
+                var stagingDir = Path.Combine(ModsRoot, ".staging-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(stagingDir);
+                try {
+                    using (var ms = new MemoryStream(zipBytes))
+                    using (var archive = new ZipArchive(ms, ZipArchiveMode.Read)) {
+                        foreach (var entry in archive.Entries) {
+                            if (string.IsNullOrEmpty(entry.Name) && (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\"))) continue;
+                            var entryRel = entry.FullName.Replace('/', '\\');
+                            var targetPath = Path.GetFullPath(Path.Combine(stagingDir, entryRel));
+                            var prefix = Path.GetFullPath(stagingDir).TrimEnd('\\') + "\\";
+                            if (!targetPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+                                throw new IOException("压缩包包含非法路径");
+                            }
+                            Directory.CreateDirectory(Path.GetDirectoryName(targetPath));
+                            using (var entryStream = entry.Open())
+                            using (var outStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None)) {
+                                byte[] buf = new byte[8192];
+                                int len;
+                                while ((len = entryStream.Read(buf, 0, buf.Length)) > 0) {
+                                    outStream.Write(buf, 0, len);
+                                }
+                            }
+                        }
+                    }
+
+                    string modSource = stagingDir;
+                    if (!File.Exists(Path.Combine(stagingDir, "mod.ini"))) {
+                        var subdirs = Directory.GetDirectories(stagingDir);
+                        var found = subdirs.FirstOrDefault(d => File.Exists(Path.Combine(d, "mod.ini")));
+                        if (found != null) {
+                            modSource = found;
+                        } else {
+                            throw new IOException("模组包缺少 mod.ini");
+                        }
+                    }
+
+                    var iniPath = Path.Combine(modSource, "mod.ini");
+                    var iniLines = File.ReadAllLines(iniPath);
+                    string foundId = null;
+                    foreach (var line in iniLines) {
+                        var trimmed = line.Trim();
+                        if (trimmed.StartsWith("id=", StringComparison.OrdinalIgnoreCase)) {
+                            foundId = trimmed.Substring(3).Trim();
+                            break;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(foundId) || !string.Equals(foundId, id, StringComparison.OrdinalIgnoreCase)) {
+                        throw new IOException("模组 ID 不匹配");
+                    }
+
+                    var targetDir = Util.Under(ModsRoot, id);
+                    var backupDir = Path.Combine(ModsRoot, ".backup-" + id + "-" + Guid.NewGuid().ToString("N"));
+                    if (Directory.Exists(targetDir)) {
+                        Directory.Move(targetDir, backupDir);
+                    }
+
+                    try {
+                        if (modSource == stagingDir) {
+                            Directory.Move(stagingDir, targetDir);
+                        } else {
+                            Directory.Move(modSource, targetDir);
+                            SafeDelete(stagingDir);
+                        }
+                        var rows = Scan();
+                        var installed = rows.FirstOrDefault(r => r.id == id);
+                        if (installed == null) throw new IOException("模组未被识别");
+                        if (!string.IsNullOrEmpty(installed.error)) throw new IOException("模组校验错误：" + installed.error);
+                        if (Directory.Exists(backupDir)) SafeDelete(backupDir);
+                    } catch {
+                        if (Directory.Exists(targetDir)) SafeDelete(targetDir);
+                        if (Directory.Exists(backupDir)) Directory.Move(backupDir, targetDir);
+                        throw;
+                    }
+                } finally {
+                    SafeDelete(stagingDir);
+                }
+
+                return Listing();
+            }
+        }
     }
 }

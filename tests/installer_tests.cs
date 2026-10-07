@@ -50,7 +50,12 @@ namespace ZmlSetup {
             var req=(HttpWebRequest)WebRequest.Create("http://127.0.0.1:"+s.Port+path);req.Proxy=null;req.Timeout=70000;req.Method=method;
             if(token!=null)req.Headers.Add("X-ZML-Token",token);if(origin!=null)req.Headers.Add("Origin",origin);
             if(body!=null){var b=Util.Utf8.GetBytes(body);req.ContentType="application/json";req.ContentLength=b.Length;using(var w=req.GetRequestStream())w.Write(b,0,b.Length);}
-            using(var response=req.GetResponse())using(var stream=response.GetResponseStream())using(var reader=new StreamReader(stream))return reader.ReadToEnd();
+            try {
+                using(var response=req.GetResponse())using(var stream=response.GetResponseStream())using(var reader=new StreamReader(stream))return reader.ReadToEnd();
+            } catch(WebException e) {
+                if(e.Response!=null) using(var err=new StreamReader(e.Response.GetResponseStream())) Console.WriteLine("HTTP ERROR: "+err.ReadToEnd());
+                throw;
+            }
         }
         static void HttpFails(InstallState s,string path,string token,string origin,int code) {
             try {Request(s,path,token,origin);}catch(WebException e){using(var r=(HttpWebResponse)e.Response)Check((int)r.StatusCode==code,"HTTP "+code+" "+path);return;}throw new Exception("HTTP should fail");
@@ -293,6 +298,25 @@ namespace ZmlSetup {
                 Fails(()=>catalog.Toggle("cycle-a",true,Revision(catalog),true,false),"cyclic dependencies cannot be enabled");
                 using(var server=new BridgeServer(s1)) {
                     Check(Request(s1,"/mods",s1.Token).Contains("测试 core"),"loopback catalog response");
+                    Check(Request(s1,"/index",s1.Token).Contains("mods"),"mod index response");
+                    var remoteZip=Path.Combine(root1,"remote-mod.zip");
+                    using(var fs=new FileStream(remoteZip,FileMode.Create))
+                    using(var arch=new ZipArchive(fs,ZipArchiveMode.Create)) {
+                        var e1=arch.CreateEntry("mod.ini");
+                        using(var s=e1.Open()) using(var sw=new StreamWriter(s)) {
+                            sw.Write("[mod]\r\nid=remote-mod\r\nname=永动接线器\r\nversion=1.0.0\r\nlibrary=Remote.dll\r\nenabled=true\r\napi=1\r\n");
+                        }
+                        var e2=arch.CreateEntry("Remote.dll");
+                        using(var s=e2.Open()) { s.Write(new byte[]{1,2,3},0,3); }
+                    }
+                    var remoteHash=Util.HashFile(remoteZip);
+                    var installBody=Util.Json(new {id="remote-mod",asset_url=remoteZip,sha256=remoteHash});
+                    var installRes=Request(s1,"/install-remote",s1.Token,null,"POST",installBody);
+                    Check(installRes.Contains("remote-mod"),"remote mod installation succeeds");
+                    Check(File.Exists(Path.Combine(root1,"ZML","mods","remote-mod","mod.ini")),"remote mod installed to mods folder");
+                    Directory.Delete(Path.Combine(root1,"ZML","mods","remote-mod"),true);
+                    Fails(()=>Request(s1,"/install-remote",s1.Token,null,"POST",Util.Json(new {id="remote-mod",asset_url=remoteZip,sha256="wrong"})),"mismatched sha256 rejected");
+                    Fails(()=>Request(s1,"/install-remote",s1.Token,null,"POST",Util.Json(new {id="mismatched",asset_url=remoteZip})),"mismatched id rejected");
                     Check(Request(s1,"/health",s1.Token,"null").Contains("true"),"file-origin CORS and authenticated health");
                     Fails(()=>Request(s1,"/prepare-launch",s1.Token,null,"POST","{\"renderMode\":\"bad\"}"),"arbitrary native launch parameters rejected");
                     Fails(()=>Request(s1,"/launch-status",s1.Token,null,"POST","{\"ticket\":\"unknown\"}"),"unknown native launch ticket rejected");

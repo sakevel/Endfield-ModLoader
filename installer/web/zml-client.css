@@ -95,7 +95,14 @@
 #zml-panel .zml-status:empty {display: none;}
 #zml-panel .zml-error {color: #f96f68;}
 #zml-panel footer {display: flex; align-items: center; justify-content: space-between; flex: none; gap: 16px; padding-top: 16px; margin-top: 8px; border-top: 1px solid var(--zml-border);}
-#zml-panel footer small {font-size: 11px; line-height: 18px; color: var(--zml-muted);}
+#zml-panel .zml-btn-active {background: rgba(255,255,255,.25) !important; color: #fff;}
+#zml-panel .zml-mod-remote {grid-template-columns: minmax(0,1fr) auto; padding-right: 8px;}
+#zml-panel .zml-btn-action {height: 28px; padding: 0 14px; font-size: 12px; border-radius: 100px; background: rgba(255,255,255,.18); color: #fff; cursor: pointer; transition: background .15s; flex: none;}
+#zml-panel .zml-btn-action:hover {background: rgba(255,255,255,.32);}
+#zml-panel .zml-btn-action:disabled {opacity: .5; cursor: wait;}
+#zml-panel .zml-badge-installed {display: inline-flex; align-items: center; justify-content: center; height: 26px; padding: 0 10px; font-size: 11px; border-radius: 100px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.55); flex: none;}
+#zml-panel .zml-link {display: inline-block; margin-top: 8px; font-size: 11px; color: rgba(255,255,255,.7); text-decoration: underline; text-underline-offset: 2px; transition: color .15s;}
+#zml-panel .zml-link:hover {color: #fff;}
 @media (max-width: 620px), (max-height: 540px) {
   #zml-layer {padding: 8px;}
   #zml-panel {padding: 18px;}
