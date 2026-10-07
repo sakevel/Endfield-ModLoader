@@ -167,7 +167,7 @@
       const summary = node('button', 'zml-summary'); summary.type = 'button';
       summary.setAttribute('aria-label', '查看 ' + mod.name + ' 详情'); summary.setAttribute('aria-expanded', String(expandedId === mod.id));
       summary.setAttribute('aria-controls', 'zml-detail-' + index);
-      if (mod.icon && /^data:image\/png;base64,/.test(mod.icon)) {
+      if (mod.icon && (/^data:image\/png;base64,/.test(mod.icon) || /^https?:\/\//.test(mod.icon))) {
         const image = node('img', 'zml-icon'); image.src = mod.icon; image.alt = ''; summary.appendChild(image);
       } else { const fallback = node('span', 'zml-icon zml-fallback'); fallback.innerHTML = gridIcon; summary.appendChild(fallback); }
       const info = node('span', 'zml-info');
@@ -229,7 +229,7 @@
       const summary = node('button', 'zml-summary'); summary.type = 'button';
       summary.setAttribute('aria-label', '查看 ' + mod.name + ' 详情'); summary.setAttribute('aria-expanded', String(expandedId === mod.id));
       summary.setAttribute('aria-controls', 'zml-remote-detail-' + index);
-      if (mod.icon && /^data:image\/png;base64,/.test(mod.icon)) {
+      if (mod.icon && (/^data:image\/png;base64,/.test(mod.icon) || /^https?:\/\//.test(mod.icon))) {
         const image = node('img', 'zml-icon'); image.src = mod.icon; image.alt = ''; summary.appendChild(image);
       } else { const fallback = node('span', 'zml-icon zml-fallback'); fallback.innerHTML = gridIcon; summary.appendChild(fallback); }
       const info = node('span', 'zml-info');
