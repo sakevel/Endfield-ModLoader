@@ -237,6 +237,7 @@
       const modTitle = mod.name + (mod.display_title ? ' · ' + mod.display_title : '');
       title.appendChild(node('b', '', modTitle));
       title.appendChild(node('span', 'zml-version', mod.version ? 'v' + mod.version : '无版本号'));
+      if (mod.authors) title.appendChild(node('span', 'zml-author-inline', 'by ' + mod.authors));
       info.appendChild(title);
       const line = node('span', 'zml-description');
       line.appendChild(node('span', 'zml-tags-inline', (mod.tags || []).join(' · ') + ((mod.tags || []).length ? '  ' : '')));
