@@ -1,81 +1,34 @@
-# ZML
+# ZML (ZeroModLoader / ZMDModLoader)
 
-适用于《明日方舟：终末地》的轻量级 Windows x64 模组加载器，提供游戏启动器集成、DLL 插件加载、运行时 IL2CPP 解析、配置服务与 Lua 脚本热修补管线。
+适用于《明日方舟：终末地》的轻量级 Windows x64 模组加载器，提供官方启动器集成、在线模组索引、DLL 插件注入、IL2CPP 解析与 Lua 脚本热修补管线。
 
 ## 功能特性
 
-- **官方启动器无缝集成**：提供图形化安装器，在官方启动器主界面无缝嵌入模组管理面板与一键加载开关。
-- **动态 IL2CPP 导出解析**：运行时解析 Unity IL2CPP 符号，支持安全的 Native 插件与 Lua 源码拦截转换。
-- **标准化模组服务**：提供统一的模组生命周期管理、依赖拓扑加载、声明式 INI 配置服务与事件订阅机制。
-- **独立模组生态**：加载器仅提供核心运行时与通用 SDK，模组作为独立包进行构建、分发与安装。
+- **官方启动器无缝集成**：内置图形化管理面板，支持模组开关切换、启动前自检与在线模组一键下载安装。
+- **动态 IL2CPP 解析与插件注入**：在游戏启动时注入 Native 插件，提供标准模组生命周期管理与拓扑依赖解析。
+- **Lua 源码拦截修补管线**：支持在游戏加载 Lua 模块时拦截明文源码并进行动态插桩转换。
+- **声明式配置服务**：提供统一的 INI 配置管理，支持游戏内原生配置菜单生成与热重载。
 
 ---
 
 ## 快速上手
 
-### 图形化安装器
-
 1. 从 Release 页面下载 `ZMLSetup-*.exe`。
-2. 运行安装器，选择鹰角启动器所在目录（通常可自动识别），点击「安装 / 修复」。
-3. 打开鹰角启动器，主按钮旁会显示「模组」按钮及「加载模组」勾选项。
-4. 勾选「加载模组」后点击「开始游戏」即可正常加载已安装的模组。
-
-可在启动器的模组侧边栏中直接开启/关闭模组，或点击「模组文件夹」将新模组放入模组目录。
-
----
-
-## 模组安装与管理
-
-模组通过独立发行包进行分发，每个模组对应 `ZML\mods\<模组ID>` 目录下的一个独立文件夹。
-
-如需手动安装或打包模组，可使用项目附带的 PowerShell 工具：
-
-```powershell
-# 将模组包安装到本地加载器
-.\tools\install-mod.ps1 -ModPackage "..\Endfield-ModMenu\build\package\Release\mod-menu"
-
-# 查看当前已安装的模组列表
-.\build\package\Release\ZMLModLoader.exe --list
-```
-
-模组的用户自定义配置保存在 `%LOCALAPPDATA%\ZML\mods\<模组ID>\config.ini`，更新或重新安装模组不会覆盖已有的个人配置。
+2. 运行安装器，选择鹰角官方启动器目录并完成安装。
+3. 打开官方启动器，点击「模组」按钮：
+   - 切换到「获取模组」标签页可一键下载安装社区模组。
+   - 勾选主按钮旁的「加载模组」，点击「开始游戏」即可正常载入模组。
 
 ---
 
-## 源码构建
+## 模组开发
 
-### 环境要求
+> 💡 **重要建议：编写模组请直接让 AI 开发**
+>
+> 终末地模组涉及底层 Unity IL2CPP 逆向、Native Hook、内存偏移以及游戏上层 Lua 的拦截注入。对于人类开发者而言手写样板代码极为繁琐。
+>
+> **强烈建议**：直接使用 [模组开发模板 (Endfield-ModTemplate)](https://github.com/sakevel/Endfield-ModTemplate)，将接口头文件 [`include/zml_plugin.h`](include/zml_plugin.h) 与你的具体需求直接提供给 AI，让 AI 编写 Native 逻辑和 Lua 补丁代码，而不是自己从头手啃反编译代码。
 
-- Visual Studio 2022 (C++ x64 工作负载)
-- Windows 10/11 SDK
-- CMake 3.25+
-- Git
-
-### 构建步骤
-
-```powershell
-# 编译核心加载器与运行时
-.\tools\build.ps1
-
-# 打包加载器发行物（输出至 dist/）
-.\tools\package.ps1
-
-# 编译图形化单文件安装器
-.\tools\build-installer.ps1
-```
-
-构建产物位于 `build/package/Release/`。可通过命令行直接测试运行：
-
-```powershell
-# 预检游戏路径与环境
-.\build\package\Release\ZMLModLoader.exe --game "D:\Game\Hypergryph Launcher\games\Endfield Game\Endfield.exe" --dry-run
-```
-
----
-
-## 模组开发与 SDK
-
-- **C 插件接口**：参见 [`include/zml_plugin.h`](include/zml_plugin.h) 与 [`include/zml_lua_service.h`](include/zml_lua_service.h)。
-- **模组配置与 Lua API 规范**：参见 [Mod API 文档](docs/MOD_API.md)。
-- **启动器集成机制**：参见 [安装器说明](docs/INSTALLER.md)。
-- **测试与验证指南**：参见 [验证说明](docs/VALIDATION.md)。
+- **开发教程**：参见 [模组开发指南](docs/DEVELOPMENT.md)。
+- **API 规范**：参见 [Mod API 文档](docs/MOD_API.md)。
+- **项目模板**：[Endfield-ModTemplate](https://github.com/sakevel/Endfield-ModTemplate)。
