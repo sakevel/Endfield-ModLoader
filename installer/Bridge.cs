@@ -63,6 +63,7 @@ namespace ZmlSetup {
                 if(request[0]=="GET" && request[1]=="/health") result=new {ok=true,schema=1,nativeLaunch=true};
                 else if(request[0]=="GET" && request[1]=="/mods") result=catalog.Listing();
                 else if(request[0]=="GET" && request[1]=="/index") result=catalog.GetIndex();
+                else if(request[0]=="GET" && request[1]=="/check-update") result=catalog.CheckUpdate();
                 else if(request[0]=="POST" && request[1]=="/install-remote") {
                     var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(Util.Utf8.GetString(body));
                     if(data==null || !data.ContainsKey("id") || !(data["id"] is string)) throw new IOException("缺少模组 ID");

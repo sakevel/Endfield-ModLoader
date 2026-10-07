@@ -299,6 +299,7 @@ namespace ZmlSetup {
                 using(var server=new BridgeServer(s1)) {
                     Check(Request(s1,"/mods",s1.Token).Contains("测试 core"),"loopback catalog response");
                     Check(Request(s1,"/index",s1.Token).Contains("mods"),"mod index response");
+                    Check(Request(s1,"/check-update",s1.Token).Contains("current"),"update check response");
                     var remoteZip=Path.Combine(root1,"remote-mod.zip");
                     using(var fs=new FileStream(remoteZip,FileMode.Create))
                     using(var arch=new ZipArchive(fs,ZipArchiveMode.Create)) {

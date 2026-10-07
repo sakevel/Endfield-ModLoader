@@ -184,6 +184,83 @@ namespace ZmlSetup {
                 return serializer.Deserialize<object>(json);
             }
         }
+        public object CheckUpdate(string releasesUrl = null) {
+            lock(gate) {
+                const string currentVersion = "0.4.0";
+                string url = string.IsNullOrEmpty(releasesUrl) ? "https://api.github.com/repos/sakevel/Endfield-ModLoader/releases/latest" : releasesUrl;
+                string json = null;
+                if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) {
+                    try {
+                        var req = (HttpWebRequest)WebRequest.Create(url);
+                        req.Timeout = 5000;
+                        req.ReadWriteTimeout = 5000;
+                        req.UserAgent = "ZML-Client";
+                        using (var resp = req.GetResponse())
+                        using (var stream = resp.GetResponseStream())
+                        using (var reader = new StreamReader(stream, Util.Utf8)) {
+                            json = reader.ReadToEnd();
+                        }
+                    } catch {}
+                } else if (File.Exists(url)) {
+                    json = File.ReadAllText(url, Util.Utf8);
+                }
+
+                if (!string.IsNullOrEmpty(json)) {
+                    try {
+                        var serializer = new JavaScriptSerializer();
+                        var data = serializer.Deserialize<Dictionary<string, object>>(json);
+                        if (data != null && data.ContainsKey("tag_name") && data["tag_name"] is string) {
+                            string tag = (string)data["tag_name"];
+                            string latestVer = tag.TrimStart('v', 'V');
+                            string releaseUrl = data.ContainsKey("html_url") && data["html_url"] is string ? (string)data["html_url"] : "https://github.com/sakevel/Endfield-ModLoader/releases";
+                            bool hasUpdate = CompareVersions(latestVer, currentVersion) > 0;
+                            return new {
+                                current = currentVersion,
+                                latest = latestVer,
+                                has_update = hasUpdate,
+                                url = releaseUrl,
+                                title = data.ContainsKey("name") && data["name"] is string ? (string)data["name"] : ("ZML " + tag)
+                            };
+                        }
+                    } catch {}
+                }
+
+                try {
+                    var index = GetIndex() as Dictionary<string, object>;
+                    if (index != null && index.ContainsKey("loader") && index["loader"] is Dictionary<string, object>) {
+                        var loader = (Dictionary<string, object>)index["loader"];
+                        if (loader.ContainsKey("version") && loader["version"] is string) {
+                            string latestVer = ((string)loader["version"]).TrimStart('v', 'V');
+                            string releaseUrl = loader.ContainsKey("url") && loader["url"] is string ? (string)loader["url"] : "https://github.com/sakevel/Endfield-ModLoader/releases";
+                            bool hasUpdate = CompareVersions(latestVer, currentVersion) > 0;
+                            return new {
+                                current = currentVersion,
+                                latest = latestVer,
+                                has_update = hasUpdate,
+                                url = releaseUrl,
+                                title = "ZML v" + latestVer
+                            };
+                        }
+                    }
+                } catch {}
+
+                return new {
+                    current = currentVersion,
+                    latest = currentVersion,
+                    has_update = false,
+                    url = "https://github.com/sakevel/Endfield-ModLoader/releases"
+                };
+            }
+        }
+        static int CompareVersions(string a, string b) {
+            try {
+                var va = new Version(a);
+                var vb = new Version(b);
+                return va.CompareTo(vb);
+            } catch {
+                return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+            }
+        }
         public object InstallRemote(string id, string assetUrl, string sha256) {
             lock(gate) {
                 if (!ValidId(id)) throw new IOException("模组 id 无效");

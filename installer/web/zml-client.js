@@ -26,7 +26,7 @@
   const panel = document.createElement('section'); panel.id = 'zml-panel'; panel.hidden = true;
   panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-labelledby', 'zml-title'); panel.setAttribute('data-clickable', 'true');
-  panel.innerHTML = '<header><h2 id="zml-title">' + getRandomFullName() + '</h2><button class="zml-close" aria-label="关闭模组面板"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 4L4 12M4 4l8 8"/></svg></button></header>' +
+  panel.innerHTML = '<header><div class="zml-header-info"><h2 id="zml-title">' + getRandomFullName() + '</h2><span class="zml-version-tag">v0.4.0</span></div><div class="zml-header-actions"><a class="zml-update-badge" target="_blank" rel="noopener noreferrer" hidden></a><button class="zml-close" aria-label="关闭模组面板"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 4L4 12M4 4l8 8"/></svg></button></div></header>' +
     '<div class="zml-tools"><input type="search" placeholder="搜索名称、标签或作者" aria-label="搜索模组"><button data-action="get-mods" aria-label="获取模组">获取模组</button><button data-action="refresh" aria-label="刷新模组">刷新</button><button data-action="folder">模组文件夹</button></div>' +
     '<nav class="zml-filters" aria-label="模组筛选"><button data-filter="all">全部</button><button data-filter="enabled">启用</button><button data-filter="disabled">禁用</button></nav>' +
     '<div class="zml-list"></div><div class="zml-status" role="status"></div>';
@@ -316,6 +316,20 @@
       draw();
     }
   }
+  let updateInfo = null;
+  async function checkUpdate() {
+    try {
+      updateInfo = await api('/check-update');
+      const badge = panel.querySelector('.zml-update-badge');
+      if (badge && updateInfo && updateInfo.has_update) {
+        badge.textContent = '发现新版本 v' + updateInfo.latest + ' ↗';
+        badge.href = updateInfo.url || 'https://github.com/sakevel/Endfield-ModLoader/releases';
+        badge.hidden = false;
+      } else if (badge) {
+        badge.hidden = true;
+      }
+    } catch (_) {}
+  }
   async function refresh(force) {
     if (busy) return;
     try {
@@ -323,6 +337,7 @@
       if (force || next.revision !== lastRevision) { lastRevision = next.revision; draw(); }
       if (force) say('');
     } catch (error) { say(error.message, true); }
+    checkUpdate();
   }
   function setBusy(value) {
     busy = value; panel.setAttribute('aria-busy', String(value));

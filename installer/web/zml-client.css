@@ -41,11 +41,16 @@
 #zml-panel button {height: 36px; padding: 0 16px; border: 0; border-radius: 100px; background: rgba(255,255,255,.10); color: #fff; cursor: pointer; white-space: nowrap; transition: background .2s;}
 #zml-panel button:hover {background: rgba(255,255,255,.20);}
 #zml-panel button:disabled {opacity: .35; cursor: wait;}
-#zml-panel header {display: flex; justify-content: space-between; align-items: flex-start; flex: none; margin-bottom: 20px;}
+#zml-panel header {display: flex; justify-content: space-between; align-items: center; flex: none; margin-bottom: 20px;}
+#zml-panel .zml-header-info {display: flex; align-items: baseline; gap: 8px;}
+#zml-panel .zml-version-tag {font-size: 11px; color: rgba(255,255,255,.45); font-weight: 400;}
+#zml-panel .zml-header-actions {display: flex; align-items: center; gap: 10px;}
+#zml-panel .zml-update-badge {display: inline-flex; align-items: center; height: 24px; padding: 0 10px; font-size: 11px; border-radius: 100px; background: rgba(255,239,0,.15); color: #ffef00; border: 1px solid rgba(255,239,0,.35); text-decoration: none; transition: background .15s;}
+#zml-panel .zml-update-badge:hover {background: rgba(255,239,0,.30);}
 #zml-panel h2 {font-size: 18px; font-weight: 500; line-height: 26px; margin: 0;}
 #zml-panel header p {margin: 4px 0 0; font-size: 13px; color: var(--zml-muted);}
 #zml-panel .zml-heading-dot {margin: 0 8px;}
-#zml-panel .zml-close {width: 24px; height: 24px; padding: 4px; margin: -4px -4px 0 0; background: transparent; border-radius: 50%; color: var(--zml-muted);}
+#zml-panel .zml-close {width: 24px; height: 24px; padding: 4px; margin: 0; background: transparent; border-radius: 50%; color: var(--zml-muted);}
 #zml-panel .zml-close:hover {color: rgba(255,255,255,.80); background: transparent;}
 #zml-panel .zml-close svg {width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round;}
 #zml-panel .zml-tools {display: flex; gap: 10px; align-items: center; flex: none;}
