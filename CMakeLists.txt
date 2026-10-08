@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(ZML VERSION 0.4.1 LANGUAGES C CXX)
+project(ZML VERSION 0.4.2 LANGUAGES C CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "Windows x64 is required")
 endif()
