@@ -117,6 +117,10 @@
       throw error;
     } finally { clearTimeout(timeout); }
   }
+  async function openExternalUrl(url) {
+    if (!url) return;
+    try { await api('/open-url', { url }); } catch (error) { say(error.message, true); }
+  }
   async function syncOptionsTheme() {
     const value = isEndfield();
     if (lastOptionsTheme === value || optionsRequest) return;
@@ -443,6 +447,14 @@
     expandedId = null;
     draw();
   });
+  function handleExternalLink(e) {
+    const link = e.target.closest('a[href^="http://"], a[href^="https://"]');
+    if (!link) return;
+    e.preventDefault(); e.stopPropagation();
+    openExternalUrl(link.href);
+  }
+  panel.addEventListener('click', handleExternalLink);
+  panel.addEventListener('auxclick', e => { if (e.button === 1) handleExternalLink(e); });
   async function launch() {
     if (busy) return; setBusy(true); say('');
     let ticket = null;

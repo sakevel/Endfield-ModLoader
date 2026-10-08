@@ -118,6 +118,12 @@ namespace ZmlSetup {
                     result=catalog.Delete((string)data["id"]);
                 }
                 else if(request[0]=="POST" && request[1]=="/open-folder") { catalog.OpenFolder(); result=new {ok=true}; }
+                else if(request[0]=="POST" && request[1]=="/open-url") {
+                    var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(Util.Utf8.GetString(body));
+                    if(data==null || !data.ContainsKey("url") || !(data["url"] is string)) throw new IOException("缺少链接地址");
+                    catalog.OpenUrl((string)data["url"]);
+                    result=new {ok=true};
+                }
                 else if(request[0]=="POST" && request[1]=="/options-theme") {
                     var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(Util.Utf8.GetString(body));
                     if(data==null || data.Count!=1 || !data.ContainsKey("endfield") || !(data["endfield"] is bool))throw new IOException("主题参数无效");

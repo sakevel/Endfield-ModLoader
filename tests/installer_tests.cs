@@ -355,10 +355,28 @@ namespace ZmlSetup {
                 Check(catalog.Scan().All(m=>m.id!="del-a"),"del-a deleted");
                 Check(catalog.Scan().First(m=>m.id=="del-b").enabled==false,"del-b disabled");
                 catalog.Delete("del-b");
+                string openedUrl = null;
+                catalog.UrlOpener = u => { openedUrl = u; };
+                catalog.OpenUrl("https://github.com/sakevel/Endfield-ModLoader");
+                Check(openedUrl=="https://github.com/sakevel/Endfield-ModLoader","catalog open valid url");
+                Fails(()=>catalog.OpenUrl("file:///c:/windows/notepad.exe"),"catalog rejects file protocol");
+                Fails(()=>catalog.OpenUrl("not-a-url"),"catalog rejects non-url");
+                Fails(()=>catalog.OpenUrl(""),"catalog rejects empty url");
                 using(var server=new BridgeServer(s1)) {
                     Check(Request(s1,"/mods",s1.Token).Contains("测试 core"),"loopback catalog response");
                     Check(Request(s1,"/index",s1.Token).Contains("mods"),"mod index response");
                     Check(Request(s1,"/check-update",s1.Token).Contains("current"),"update check response");
+                    Catalog.GlobalUrlOpener = u => { openedUrl = u; };
+                    try {
+                        var openBody = Util.Json(new { url = "https://github.com/sakevel/test" });
+                        Check(Request(s1, "/open-url", s1.Token, null, "POST", openBody).Contains("true"), "bridge open url response");
+                        Check(openedUrl == "https://github.com/sakevel/test", "bridge dispatches external url");
+                        Fails(() => Request(s1, "/open-url", s1.Token, null, "POST", Util.Json(new { url = "file:///c:/test.exe" })), "bridge rejects unsafe scheme");
+                        Fails(() => Request(s1, "/open-url", s1.Token, null, "POST", Util.Json(new { url = "" })), "bridge rejects empty url");
+                        Fails(() => Request(s1, "/open-url", s1.Token, null, "POST", "{}"), "bridge rejects missing url");
+                    } finally {
+                        Catalog.GlobalUrlOpener = null;
+                    }
                     var remoteZip=Path.Combine(root1,"remote-mod.zip");
                     using(var fs=new FileStream(remoteZip,FileMode.Create))
                     using(var arch=new ZipArchive(fs,ZipArchiveMode.Create)) {

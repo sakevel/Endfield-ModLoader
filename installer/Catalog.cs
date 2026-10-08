@@ -128,6 +128,18 @@ namespace ZmlSetup {
             File.Delete(journal);
         }
         public void OpenFolder() { System.Diagnostics.Process.Start("explorer.exe",Util.Quote(ModsRoot)); }
+        public static Action<string> GlobalUrlOpener;
+        public Action<string> UrlOpener;
+        public void OpenUrl(string url) {
+            if (string.IsNullOrEmpty(url)) throw new IOException("无效的链接地址");
+            Uri uri;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)) {
+                throw new IOException("仅允许打开 http/https 链接");
+            }
+            if (UrlOpener != null) { UrlOpener(uri.AbsoluteUri); return; }
+            if (GlobalUrlOpener != null) { GlobalUrlOpener(uri.AbsoluteUri); return; }
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        }
         static void SafeDelete(string dir) {
             if (!Directory.Exists(dir)) return;
             try {
