@@ -24,6 +24,18 @@ namespace ZmlSetup {
         static readonly Regex Id=new Regex(@"^[a-z0-9._-]{1,96}$");
         static string[] Split(string value) { return value.Split(',').Select(s=>s.Trim()).Where(s=>s.Length>0).Distinct().ToArray(); }
         static bool ValidId(string id) { return id!="." && id!=".." && Id.IsMatch(id); }
+        static readonly object networkGate=new object();
+        internal static HttpWebRequest CreateRequest(string url) {
+            // The Framework compiler's unannotated EXEs default to SSL3/TLS1.0,
+            // unlike PowerShell. GitHub requires TLS1.2. Keep OS defaults and
+            // any newer protocols supplied by the host unchanged.
+            lock(networkGate) {
+                var protocols=ServicePointManager.SecurityProtocol;
+                if(protocols!=(SecurityProtocolType)0 && (protocols & SecurityProtocolType.Tls12)==0)
+                    ServicePointManager.SecurityProtocol=protocols | SecurityProtocolType.Tls12;
+            }
+            return (HttpWebRequest)WebRequest.Create(url);
+        }
         public List<ModRow> Scan() {
             var rows=new List<ModRow>();
             Util.NoLinks(ModsRoot); Directory.CreateDirectory(ModsRoot);
@@ -155,7 +167,7 @@ namespace ZmlSetup {
                 string json = null;
                 if (targetUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || targetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) {
                     try {
-                        var req = (HttpWebRequest)WebRequest.Create(targetUrl);
+                        var req = CreateRequest(targetUrl);
                         req.Timeout = 5000;
                         req.ReadWriteTimeout = 5000;
                         req.UserAgent = "ZML-Client";
@@ -203,7 +215,7 @@ namespace ZmlSetup {
                 string json = null;
                 if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) {
                     try {
-                        var req = (HttpWebRequest)WebRequest.Create(url);
+                        var req = CreateRequest(url);
                         req.Timeout = 5000;
                         req.ReadWriteTimeout = 5000;
                         req.UserAgent = "ZML-Client";
@@ -279,7 +291,7 @@ namespace ZmlSetup {
                 byte[] zipBytes = null;
                 if (!string.IsNullOrEmpty(assetUrl) && (assetUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || assetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))) {
                     try {
-                        var req = (HttpWebRequest)WebRequest.Create(assetUrl);
+                        var req = CreateRequest(assetUrl);
                         req.Timeout = 15000;
                         req.ReadWriteTimeout = 30000;
                         req.UserAgent = "ZML-Client";

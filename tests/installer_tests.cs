@@ -32,6 +32,20 @@ namespace ZmlSetup {
         }
         static string WriteResult(string root,object value) {var file=Path.Combine(root,"own-result.json");Util.WriteJson(file,value);return file;}
         static void Check(bool ok,string name) { if(!ok)throw new Exception("FAIL "+name); Console.WriteLine("PASS "+name);passed++; }
+        static void NetworkProtocolTests() {
+            var original=ServicePointManager.SecurityProtocol;
+            try {
+                ServicePointManager.SecurityProtocol=SecurityProtocolType.Tls;
+                var request=Catalog.CreateRequest("https://github.com/");
+                Check((ServicePointManager.SecurityProtocol & SecurityProtocolType.Tls12)!=0 && request.RequestUri.Host=="github.com","catalog enables TLS1.2 in legacy Framework hosts");
+                ServicePointManager.SecurityProtocol=(SecurityProtocolType)0;
+                Catalog.CreateRequest("https://github.com/");
+                Check(ServicePointManager.SecurityProtocol==(SecurityProtocolType)0,"catalog preserves OS-selected TLS defaults");
+                ServicePointManager.SecurityProtocol=SecurityProtocolType.Tls12;
+                Catalog.CreateRequest("https://github.com/");
+                Check(ServicePointManager.SecurityProtocol==SecurityProtocolType.Tls12,"catalog preserves modern host TLS policy");
+            } finally { ServicePointManager.SecurityProtocol=original; }
+        }
         static void Fails(Action action,string name) {try{action();}catch(Exception){Check(true,name);return;}throw new Exception("FAIL did not reject "+name);}
         static string Fixture(string fixture) {
             var root=Path.Combine(area,"launcher-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
@@ -297,7 +311,7 @@ namespace ZmlSetup {
                 area=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"fixtures-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(area);
                 bool serve=args.Length==3 && args[0]=="--serve", ui=args.Length==3 && args[0]=="--setup-ui"; var zip=args[serve||ui?1:0];var fixture=args[serve||ui?2:1];
                 Dictionary<string,byte[]> payload;using(var stream=File.OpenRead(zip))payload=InstallEngine.Payload(stream);
-                if(!serve){UiTests(payload,fixture);ProcessTests(payload,fixture);if(!ui)PortTests(payload,fixture);}
+                if(!serve){NetworkProtocolTests();UiTests(payload,fixture);ProcessTests(payload,fixture);if(!ui)PortTests(payload,fixture);}
                 if(ui) {Console.WriteLine("RESULT "+passed+" UI checks; artifacts "+area);return 0;}
                 if(serve) {
                     var root=Fixture(fixture);InstallEngine.Install(root,InstallEngine.SuggestedGame(root),payload,false);
