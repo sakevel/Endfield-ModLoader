@@ -404,5 +404,46 @@ namespace ZmlSetup {
                 return Listing();
             }
         }
+        public object Delete(string id) {
+            lock(gate) {
+                if (!ValidId(id)) throw new IOException("模组 id 无效");
+                var rows = Scan();
+                var target = rows.FirstOrDefault(r => r.id == id);
+                if (target == null) throw new IOException("模组不存在");
+
+                foreach (var other in rows.Where(m => m.error == null && m.enabled && m.depends.Contains(id))) {
+                    try {
+                        var plan = Plan(rows.Where(m => m.error == null).ToList(), other.id, false);
+                        foreach (var r in plan) {
+                            var iniPath = r.Manifest;
+                            if (File.Exists(iniPath)) {
+                                var content = File.ReadAllText(iniPath, Util.Utf8);
+                                content = Regex.Replace(content, @"(?m)^(\s*enabled\s*=\s*)(true|false)(\s*)$", m => m.Groups[1].Value + "false" + m.Groups[3].Value);
+                                Util.Atomic(iniPath, Util.Utf8.GetBytes(content));
+                            }
+                        }
+                    } catch {}
+                }
+
+                var targetDir = Util.Under(ModsRoot, target.folder);
+                if (!Directory.Exists(targetDir)) throw new IOException("模组目录不存在");
+
+                var trashDir = Path.Combine(ModsRoot, ".trash-" + target.folder + "-" + Guid.NewGuid().ToString("N"));
+                try {
+                    Directory.Move(targetDir, trashDir);
+                    SafeDelete(trashDir);
+                } catch {
+                    SafeDelete(targetDir);
+                    if (Directory.Exists(trashDir)) SafeDelete(trashDir);
+                }
+
+                if (Directory.Exists(targetDir)) {
+                    throw new IOException("无法删除模组文件夹，请检查文件是否被占用。");
+                }
+
+                return Listing();
+            }
+        }
     }
 }
+

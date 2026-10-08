@@ -349,6 +349,12 @@ namespace ZmlSetup {
                 catalog.Toggle("cycle-a",false,Revision(catalog),true,false);
                 Check(catalog.Scan().Where(m=>m.id.StartsWith("cycle-")).All(m=>!m.enabled),"cyclic enabled mods can be safely disabled");
                 Fails(()=>catalog.Toggle("cycle-a",true,Revision(catalog),true,false),"cyclic dependencies cannot be enabled");
+                Mod(root1,"del-a",true,null);Mod(root1,"del-b",true,"del-a");
+                Check(catalog.Scan().First(m=>m.id=="del-a").enabled && catalog.Scan().First(m=>m.id=="del-b").enabled,"del pair enabled");
+                catalog.Delete("del-a");
+                Check(catalog.Scan().All(m=>m.id!="del-a"),"del-a deleted");
+                Check(catalog.Scan().First(m=>m.id=="del-b").enabled==false,"del-b disabled");
+                catalog.Delete("del-b");
                 using(var server=new BridgeServer(s1)) {
                     Check(Request(s1,"/mods",s1.Token).Contains("测试 core"),"loopback catalog response");
                     Check(Request(s1,"/index",s1.Token).Contains("mods"),"mod index response");
@@ -368,7 +374,10 @@ namespace ZmlSetup {
                     var installRes=Request(s1,"/install-remote",s1.Token,null,"POST",installBody);
                     Check(installRes.Contains("remote-mod"),"remote mod installation succeeds");
                     Check(File.Exists(Path.Combine(root1,"ZML","mods","remote-mod","mod.ini")),"remote mod installed to mods folder");
-                    Directory.Delete(Path.Combine(root1,"ZML","mods","remote-mod"),true);
+                    var deleteRes=Request(s1,"/delete",s1.Token,null,"POST",Util.Json(new {id="remote-mod"}));
+                    Check(!deleteRes.Contains("\"remote-mod\""),"remote mod deletion succeeds");
+                    Check(!Directory.Exists(Path.Combine(root1,"ZML","mods","remote-mod")),"deleted mod directory removed");
+                    Fails(()=>Request(s1,"/delete",s1.Token,null,"POST",Util.Json(new {id="nonexistent"})),"delete nonexistent mod rejected");
                     Fails(()=>Request(s1,"/install-remote",s1.Token,null,"POST",Util.Json(new {id="remote-mod",asset_url=remoteZip,sha256="wrong"})),"mismatched sha256 rejected");
                     Fails(()=>Request(s1,"/install-remote",s1.Token,null,"POST",Util.Json(new {id="mismatched",asset_url=remoteZip})),"mismatched id rejected");
                     Check(Request(s1,"/health",s1.Token,"null").Contains("true"),"file-origin CORS and authenticated health");

@@ -109,6 +109,10 @@
 #zml-panel .zml-badge-installed {display: inline-flex; align-items: center; justify-content: center; height: 26px; padding: 0 10px; font-size: 11px; border-radius: 100px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.55); flex: none;}
 #zml-panel .zml-link {display: inline-block; margin-top: 8px; font-size: 11px; color: rgba(255,255,255,.7); text-decoration: underline; text-underline-offset: 2px; transition: color .15s;}
 #zml-panel .zml-link:hover {color: #fff;}
+#zml-panel .zml-detail-actions {display: flex; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--zml-border);}
+#zml-panel .zml-btn-danger {height: 28px; padding: 0 12px; font-size: 12px; border-radius: 6px; background: rgba(249,111,104,.15); color: #f96f68; border: 1px solid rgba(249,111,104,.35); cursor: pointer; transition: background .15s;}
+#zml-panel .zml-btn-danger:hover {background: rgba(249,111,104,.30); color: #ff857f;}
+#zml-panel .zml-btn-danger:disabled {opacity: .4; cursor: wait;}
 @media (max-width: 620px), (max-height: 540px) {
   #zml-layer {padding: 8px;}
   #zml-panel {padding: 18px;}

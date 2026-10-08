@@ -112,6 +112,11 @@ namespace ZmlSetup {
                     string sha256=data.ContainsKey("sha256") && data["sha256"] is string ? (string)data["sha256"] : null;
                     result=catalog.InstallRemote(id,assetUrl,sha256);
                 }
+                else if(request[0]=="POST" && request[1]=="/delete") {
+                    var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(Util.Utf8.GetString(body));
+                    if(data==null || !data.ContainsKey("id") || !(data["id"] is string)) throw new IOException("缺少模组 ID");
+                    result=catalog.Delete((string)data["id"]);
+                }
                 else if(request[0]=="POST" && request[1]=="/open-folder") { catalog.OpenFolder(); result=new {ok=true}; }
                 else if(request[0]=="POST" && request[1]=="/options-theme") {
                     var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(Util.Utf8.GetString(body));

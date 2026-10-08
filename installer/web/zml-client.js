@@ -186,6 +186,12 @@
       const tags = node('div', 'zml-tags'); (mod.tags || []).forEach(t => tags.appendChild(node('span', '', t))); detail.appendChild(tags);
       if (mod.depends && mod.depends.length) detail.appendChild(node('div', 'zml-deps', '依赖：' + mod.depends.join(' · ')));
       if (mod.error) detail.appendChild(node('div', 'zml-error', mod.error));
+      const actions = node('div', 'zml-detail-actions');
+      const deleteBtn = node('button', 'zml-btn-danger', '删除模组');
+      deleteBtn.type = 'button';
+      deleteBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteMod(mod); });
+      actions.appendChild(deleteBtn);
+      detail.appendChild(actions);
       row.appendChild(detail);
       summary.addEventListener('click', () => { expandedId = expandedId === mod.id ? null : mod.id; draw(); const target = [...list.querySelectorAll('.zml-summary')].find(n => n.getAttribute('aria-label') === '查看 ' + mod.name + ' 详情'); if (target) target.focus(); });
       toggle.addEventListener('change', () => change(mod, toggle.checked)); list.appendChild(row);
@@ -275,6 +281,14 @@
         link.href = mod.repo_url; link.target = '_blank'; link.rel = 'noopener noreferrer';
         detail.appendChild(link);
       }
+      if (localMod) {
+        const actions = node('div', 'zml-detail-actions');
+        const deleteBtn = node('button', 'zml-btn-danger', '删除模组');
+        deleteBtn.type = 'button';
+        deleteBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteMod(localMod); });
+        actions.appendChild(deleteBtn);
+        detail.appendChild(actions);
+      }
       row.appendChild(detail);
 
       summary.addEventListener('click', () => {
@@ -285,6 +299,28 @@
       list.appendChild(row);
     });
     list.scrollTop = scroll;
+  }
+  async function deleteMod(mod) {
+    if (busy || !catalog) return;
+    const dependentMods = catalog.mods.filter(m => m.enabled && (m.depends || []).includes(mod.id));
+    let msg = '确定要删除模组 “' + mod.name + '” 吗？\n删除后该模组的所有文件将被移除。';
+    if (dependentMods.length) {
+      msg += '\n\n注意：以下启用的模组依赖此模组，将被同时停用：\n' + dependentMods.map(m => '· ' + m.name).join('\n');
+    }
+    if (!window.confirm(msg)) return;
+    setBusy(true);
+    say('正在删除模组 ' + mod.name + '...');
+    try {
+      catalog = await api('/delete', { id: mod.id });
+      lastRevision = catalog.revision;
+      if (expandedId === mod.id) expandedId = null;
+      say('已成功删除模组 ' + mod.name + '。');
+    } catch (error) {
+      say(error.message, true);
+    } finally {
+      setBusy(false);
+      draw();
+    }
   }
   async function installRemoteMod(mod) {
     if (busy || downloadingIds.has(mod.id)) return;
