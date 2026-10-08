@@ -82,3 +82,10 @@ python tests/installer_web_tests.py --start build/installer/InstallerTests.exe b
 3. **模组热修补**：
    - 模组声明的 Lua 变换能在游戏加载阶段正常生效。
    - 修改模组配置后能在游戏内正常热重载。
+
+## 2026-10-08：v0.4.1 自动恢复面板端口
+
+- Release 构建通过；`ctest --test-dir build -C Release --output-on-failure -E '^installer$'`：6/6 通过。
+- `tools/build-installer.ps1 -SkipFrameworkBuild`：136 项检查通过，包含空闲端口零写入、占用端口自动替换、Windows 保留端口的真实 `AccessDenied` 恢复、持续独占绑定、认证请求与错误 token 拒绝、登记地址/校验一致、重启复用、锁定凭据时字节级回滚、拒绝外部修改，以及换端口后卸载恢复。
+- `python tests/installer_web_tests.py --start build/installer/InstallerTests.exe build/installer/payload.zip build/tests/Release/InjectionFixture.exe`：13 项 headless Chromium 场景通过，零页面错误。
+- 安装/回滚/卸载与浏览器验证均使用本次测试创建的独立副本和自有进程；未关闭真实启动器或游戏，未修改系统端口保留设置，未操作桌面 GUI。真实 Qt 启动器未在本次重开验收。

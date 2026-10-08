@@ -18,9 +18,49 @@ namespace ZmlSetup {
         volatile bool stopped;
         public BridgeServer(InstallState s) {
             state=s; catalog=new Catalog(s); native=new NativeLaunch(s);
-            listener=new TcpListener(IPAddress.Loopback,s.Port);
-            listener.Server.ExclusiveAddressUse=true; listener.Start(16);
+            listener=Bind(s);
             Task.Run((Action)Accept);
+        }
+        static TcpListener Bind(InstallState state) {
+            var selected=new TcpListener(IPAddress.Loopback,state.Port);
+            selected.Server.ExclusiveAddressUse=true;
+            try { selected.Start(16); return selected; }
+            catch(SocketException e) {
+                selected.Stop();
+                if(e.SocketErrorCode!=SocketError.AddressAlreadyInUse && e.SocketErrorCode!=SocketError.AccessDenied) throw;
+            }
+            // Let Windows choose an available, non-reserved port; keep it bound
+            // while publishing the endpoint so another process cannot steal it.
+            selected=new TcpListener(IPAddress.Loopback,0);
+            selected.Server.ExclusiveAddressUse=true;
+            try {
+                selected.Start(16);
+                SavePort(state,((IPEndPoint)selected.LocalEndpoint).Port);
+                return selected;
+            } catch { selected.Stop(); throw; }
+        }
+        static void SavePort(InstallState state,int port) {
+            var endpoints=state.Files.Where(f=>f.Path.EndsWith("\\zml-endpoint.js",StringComparison.OrdinalIgnoreCase)).ToArray();
+            if(endpoints.Length==0) throw new IOException("未找到登记的模组面板地址。");
+            var originals=endpoints.Select(f=>File.ReadAllBytes(Util.Under(state.Root,f.Path))).ToArray();
+            var hashes=endpoints.Select(f=>f.After).ToArray();
+            for(int i=0;i<endpoints.Length;i++)
+                if(Util.Hash(originals[i])!=hashes[i]) throw new IOException("模组面板地址已被外部修改，请运行安装器修复。");
+            var config=Util.Utf8.GetBytes("window.ZML_LAUNCHER="+Util.Json(new {endpoint="http://127.0.0.1:"+port,token=state.Token})+";\n");
+            int previous=state.Port, written=0;
+            try {
+                for(int i=0;i<endpoints.Length;i++) {
+                    Util.Atomic(Util.Under(state.Root,endpoints[i].Path),config); written++;
+                    endpoints[i].After=Util.Hash(config);
+                }
+                state.Port=port;
+                Util.WriteJson(Util.StatePath(state.Root),state);
+            } catch {
+                state.Port=previous;
+                for(int i=0;i<endpoints.Length;i++) endpoints[i].After=hashes[i];
+                for(int i=0;i<written;i++) Util.Atomic(Util.Under(state.Root,endpoints[i].Path),originals[i]);
+                throw;
+            }
         }
         void Accept() {
             while(!stopped) try {
@@ -131,7 +171,7 @@ namespace ZmlSetup {
                         }
                     } catch(SocketException) {
                         StartOriginal(original,root,args);
-                        MessageBox.Show("模组面板端口被占用。原启动器仍可使用；请退出启动器后运行安装器重新安装。", Util.RandomFullName(), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        MessageBox.Show("无法绑定模组面板的本机端口。原启动器仍可使用；请检查系统网络限制后重试。", Util.RandomFullName(), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return 1;
                     }
                 }

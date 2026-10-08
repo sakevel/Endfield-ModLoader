@@ -41,7 +41,7 @@ if(-not $SkipTests){
     if($LASTEXITCODE -ne 0){throw 'Installer tests failed'}
 }
 $dist=Join-Path $root 'dist';New-Item -ItemType Directory -Force $dist | Out-Null
-$release=Join-Path $dist ('ZMLSetup-0.1.14-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-win-x64.exe')
+$release=Join-Path $dist ('ZMLSetup-0.1.15-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-win-x64.exe')
 Copy-Item -LiteralPath $setup -Destination $release
 $sha=[Security.Cryptography.SHA256]::Create()
 try {$hash=[BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($release))).Replace('-','')}finally{$sha.Dispose()}

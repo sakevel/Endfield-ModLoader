@@ -239,12 +239,65 @@ namespace ZmlSetup {
             }
 
         }
+        static void PortTests(Dictionary<string,byte[]> payload,string fixture) {
+            var root=Fixture(fixture);var original=Util.HashFile(Path.Combine(root,"Launcher.exe"));
+            InstallEngine.Install(root,InstallEngine.SuggestedGame(root),payload,false);
+            var state=Util.State(root);var port=state.Port;
+            var endpoint=state.Files.Single(f=>f.Path.EndsWith("\\zml-endpoint.js"));
+            var endpointPath=Util.Under(root,endpoint.Path);
+            var statePath=Util.StatePath(root);var stateBefore=File.ReadAllBytes(statePath);
+            var filesBefore=state.Files.ToDictionary(f=>f.Path,f=>Util.HashFile(Util.Under(root,f.Path)));
+            using(var server=new BridgeServer(state)) {
+                Check(state.Port==port && File.ReadAllBytes(statePath).SequenceEqual(stateBefore),"available registered port retained without configuration writes");
+            }
+            var busy=new TcpListener(IPAddress.Loopback,port);busy.Server.ExclusiveAddressUse=true;busy.Start();
+            try {
+                using(var server=new BridgeServer(state)) {
+                    var saved=Util.State(root);
+                    Check(state.Port!=port && saved.Port==state.Port && saved.Token==state.Token,"occupied port automatically replaced and token preserved");
+                    Check(File.ReadAllText(endpointPath).Contains("http://127.0.0.1:"+state.Port) && Util.HashFile(endpointPath)==saved.Files.Single(f=>f.Path==endpoint.Path).After,"new endpoint and uninstall receipt agree");
+                    Check(Request(state,"/health",state.Token,"null").Contains("true"),"automatic port serves authenticated file-origin requests");
+                    HttpFails(state,"/health","wrong-token",null,403);
+                    var steal=new TcpListener(IPAddress.Loopback,state.Port);steal.Server.ExclusiveAddressUse=true;
+                    try {Fails(()=>steal.Start(),"selected port remains bound while service runs");} finally {steal.Stop();}
+                    Check(state.Files.Where(f=>f.Path!=endpoint.Path).All(f=>Util.HashFile(Util.Under(root,f.Path))==filesBefore[f.Path]),"port migration leaves all other installed files untouched");
+                }
+            } finally {busy.Stop();}
+            var persisted=File.ReadAllBytes(statePath);
+            using(var server=new BridgeServer(Util.State(root))) Check(File.ReadAllBytes(statePath).SequenceEqual(persisted),"restart reuses migrated port without rewriting receipt");
+            port=state.Port;busy=new TcpListener(IPAddress.Loopback,port);busy.Server.ExclusiveAddressUse=true;busy.Start();
+            try {
+                var endpointBefore=File.ReadAllBytes(endpointPath);var hash=endpoint.After;
+                using(var locked=new FileStream(statePath,FileMode.Open,FileAccess.Read,FileShare.Read))
+                    Fails(()=> {using(var server=new BridgeServer(state)) {}},"port migration rejects locked receipt");
+                Check(state.Port==port && endpoint.After==hash && File.ReadAllBytes(endpointPath).SequenceEqual(endpointBefore) && File.ReadAllBytes(statePath).SequenceEqual(persisted),"failed receipt publication rolls back endpoint and memory byte-exactly");
+                File.AppendAllText(endpointPath,"// external change\n");var changed=File.ReadAllBytes(endpointPath);
+                Fails(()=> {using(var server=new BridgeServer(state)) {}},"port migration rejects externally modified endpoint");
+                Check(File.ReadAllBytes(endpointPath).SequenceEqual(changed) && File.ReadAllBytes(statePath).SequenceEqual(persisted),"external endpoint and receipt preserved on rejection");
+                Util.Atomic(endpointPath,endpointBefore);
+            } finally {busy.Stop();}
+            // Exercise WSAEACCES on this host when Windows has reserved TCP ranges.
+            var ranges=Util.Run(Path.Combine(Environment.SystemDirectory,"netsh.exe"),"interface ipv4 show excludedportrange protocol=tcp",root,10);
+            foreach(System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(ranges,@"(?m)^\s*(\d+)\s+(\d+)\s*\*?\s*$")) {
+                int reserved=Int32.Parse(match.Groups[1].Value);if(reserved<1024) continue;
+                var probe=new TcpListener(IPAddress.Loopback,reserved);probe.Server.ExclusiveAddressUse=true;bool denied=false;
+                try {probe.Start();}catch(SocketException e){denied=e.SocketErrorCode==SocketError.AccessDenied;}finally {probe.Stop();}
+                if(!denied) continue;
+                state.Port=reserved;
+                var config=Util.Utf8.GetBytes("window.ZML_LAUNCHER="+Util.Json(new {endpoint="http://127.0.0.1:"+reserved,token=state.Token})+";\n");
+                Util.Atomic(endpointPath,config);endpoint.After=Util.Hash(config);Util.WriteJson(statePath,state);
+                using(var server=new BridgeServer(state)) Check(state.Port!=reserved && Request(state,"/health",state.Token).Contains("true"),"Windows-reserved port automatically recovered from AccessDenied");
+                break;
+            }
+            InstallEngine.Uninstall(root);
+            Check(Util.HashFile(Path.Combine(root,"Launcher.exe"))==original && !File.Exists(endpointPath),"uninstall after automatic port migration restores original launcher and removes owned endpoint");
+        }
         [STAThread] public static int Main(string[] args) {
             try {
                 area=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"fixtures-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(area);
                 bool serve=args.Length==3 && args[0]=="--serve", ui=args.Length==3 && args[0]=="--setup-ui"; var zip=args[serve||ui?1:0];var fixture=args[serve||ui?2:1];
                 Dictionary<string,byte[]> payload;using(var stream=File.OpenRead(zip))payload=InstallEngine.Payload(stream);
-                if(!serve){UiTests(payload,fixture);ProcessTests(payload,fixture);}
+                if(!serve){UiTests(payload,fixture);ProcessTests(payload,fixture);if(!ui)PortTests(payload,fixture);}
                 if(ui) {Console.WriteLine("RESULT "+passed+" UI checks; artifacts "+area);return 0;}
                 if(serve) {
                     var root=Fixture(fixture);InstallEngine.Install(root,InstallEngine.SuggestedGame(root),payload,false);
