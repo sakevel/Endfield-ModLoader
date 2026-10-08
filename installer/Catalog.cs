@@ -210,7 +210,7 @@ namespace ZmlSetup {
         }
         public object CheckUpdate(string releasesUrl = null) {
             lock(gate) {
-                const string currentVersion = "0.4.2";
+                const string currentVersion = "0.4.3";
                 string url = string.IsNullOrEmpty(releasesUrl) ? "https://api.github.com/repos/sakevel/Endfield-ModLoader/releases/latest" : releasesUrl;
                 string json = null;
                 if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) {

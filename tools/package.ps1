@@ -5,7 +5,7 @@ $package = Join-Path $root 'build\package\Release'
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
 $flavor=if($ModPackage.Count){'-with-mods'}else{''}
-$zip = Join-Path $dist ('ZML-0.4.2-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + $flavor + '-win-x64.zip')
+$zip = Join-Path $dist ('ZML-0.4.3-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + $flavor + '-win-x64.zip')
 # An explicit whitelist prevents private config, logs, source fixtures or tests
 # from accidentally entering the redistributable package.
 $scratch = Join-Path $dist ('staging-' + [guid]::NewGuid().ToString('N'))
