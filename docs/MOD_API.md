@@ -152,3 +152,7 @@ return {
 ```
 
 高级模组亦可声明 `presentation="full"` 获取全屏画布容器，使用 Unity 原生 UI 组件自由绘制复杂的拖拽或交互界面。
+
+## 运行时启停
+
+ZML 0.5.0 支持可选的 `runtime_toggle=true` 契约，提供原生活动查询接口与 Lua 生命周期事件。模组需实现停用时的状态清理与启用时的恢复逻辑。详见 [运行时启停契约](RUNTIME_TOGGLE.md)。

@@ -2,6 +2,8 @@
 #include "manifest.hpp"
 #include <map>
 #include <mutex>
+#include <atomic>
+#include <memory>
 namespace zml {
 // Public Lua modules and configuration data are loader services, not menu hooks.
 struct ConfigField {
@@ -23,17 +25,21 @@ struct ModRecord {
     ConfigValues values;
     std::filesystem::path state;
     std::string icon_base64, entry_source;
+    std::shared_ptr<std::atomic_bool> active;
 };
 // prepare before calling start(); publish only after successful initialization.
 ModRecord prepare_record(const Manifest& manifest, const std::filesystem::path& state);
 class ModServices {
     std::vector<ModRecord> records_;
     std::string api_source_;
+    std::filesystem::path mod_root_;
     mutable std::mutex mutex_;
 public:
     void set_api(std::string source);
+    void set_mod_root(std::filesystem::path root);
     void publish(ModRecord record);
     std::string registry_lua() const;
+    bool is_enabled(std::string_view id) const;
     // ZML/Api, ZML/Get/<id>, ZML/Set/<id>/<key>/<hex>, ZML/Entry/<id>.
     // No arbitrary file access or native function invocation.
     std::string module(std::string_view path);

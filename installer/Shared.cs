@@ -96,7 +96,7 @@ namespace ZmlSetup {
             var state=ReadJson<InstallState>(StatePath(root));
             if (state==null || state.Schema!=1 || !String.Equals(Path.GetFullPath(root).TrimEnd('\\'), state.Root, StringComparison.OrdinalIgnoreCase) || state.Port<1024 || state.Port>65535 || state.Token==null || !System.Text.RegularExpressions.Regex.IsMatch(state.Token,"^[0-9a-f]{64}$") || state.Files==null || state.Files.Count>256) throw new IOException("安装状态无效");
             var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var known=new[]{"Launcher.exe","Launcher.zml-original.exe","ZML\\ZMLModLoader.exe","ZML\\ZMLRuntime.dll","ZML\\ZMLNativeLaunch.dll","ZML\\ZMLLauncherOptions.dll","ZML\\ZMLUninstall.exe","ZML\\Qt-LICENSE.txt","ZML\\README.md","ZML\\MinHook-LICENSE.txt","ZML\\loader.ini.example","ZML\\loader.ini","ZML\\lua\\zml.lua","ZML\\docs\\MOD_API.md","ZML\\INSTALLER.md"};
+            var known=new[]{"Launcher.exe","Launcher.zml-original.exe","ZML\\ZMLModLoader.exe","ZML\\ZMLRuntime.dll","ZML\\ZMLNativeLaunch.dll","ZML\\ZMLLauncherOptions.dll","ZML\\ZMLUninstall.exe","ZML\\Qt-LICENSE.txt","ZML\\README.md","ZML\\MinHook-LICENSE.txt","ZML\\loader.ini.example","ZML\\loader.ini","ZML\\lua\\zml.lua","ZML\\docs\\MOD_API.md","ZML\\docs\\RUNTIME_TOGGLE.md","ZML\\INSTALLER.md"};
             var digest=new System.Text.RegularExpressions.Regex("^[0-9a-f]{64}$");
             foreach(var f in state.Files) {
                 // Validate uninstaller state path

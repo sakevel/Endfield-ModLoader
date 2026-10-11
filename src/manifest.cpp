@@ -44,7 +44,7 @@ Manifest read_manifest(const std::filesystem::path& file) {
         auto key = trim(line.substr(0, eq));
         if (key != "id" && key != "name" && key != "library" && key != "enabled" && key != "api" &&
             key != "version" && key != "description" && key != "authors" && key != "tags" &&
-            key != "icon" && key != "config" && key != "config_entry" && key != "config_menu" && key != "depends")
+            key != "icon" && key != "config" && key != "config_entry" && key != "config_menu" && key != "depends" && key != "runtime_toggle")
             throw std::runtime_error("Unknown manifest key: " + key);
         if (!values.emplace(key, trim(line.substr(eq + 1))).second) throw std::runtime_error("Duplicate manifest key");
     }
@@ -59,6 +59,10 @@ Manifest read_manifest(const std::filesystem::path& file) {
     Manifest m;
     m.id = id; m.title = values["name"].empty() ? id : values["name"];
     m.directory = std::filesystem::canonical(file.parent_path()); m.enabled = values["enabled"] == "true";
+    if (values.contains("runtime_toggle")) {
+        if (values["runtime_toggle"] != "true" && values["runtime_toggle"] != "false") throw std::runtime_error("runtime_toggle must be true/false");
+        m.runtime_toggle = values["runtime_toggle"] == "true";
+    }
     m.library = m.directory / library;
     if (!inside(m.directory, m.library)) throw std::runtime_error("Library escapes mod directory");
     m.version = values["version"]; m.description = values["description"]; m.authors = values["authors"];
@@ -111,6 +115,21 @@ std::vector<Manifest> discover(const std::filesystem::path& root) {
         if (!ids.insert(m.id).second) throw std::runtime_error("Duplicate mod id: " + m.id);
         mods.push_back(std::move(m));
     }
+    return dependency_order(std::move(mods));
+}
+std::vector<Manifest> resident_order(std::vector<Manifest> mods) {
+    // Validate actual requested state first. Optional disabled packages must not
+    // turn a previously valid startup into a global failure (missing deps/cycle).
+    mods = dependency_order(std::move(mods));
+    std::vector<std::string> residents;
+    for (auto& m : mods) if (m.enabled) residents.push_back(m.id);
+    bool progress;
+    do {
+        progress = false;
+        for (auto& m : mods) if (!m.enabled && m.runtime_toggle && dependencies_loaded(m,residents)) {
+            m.enabled = true; residents.push_back(m.id); progress = true;
+        }
+    } while (progress);
     return dependency_order(std::move(mods));
 }
 bool dependencies_loaded(const Manifest& m, const std::vector<std::string>& loaded) {

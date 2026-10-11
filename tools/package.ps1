@@ -5,7 +5,7 @@ $package = Join-Path $root 'build\package\Release'
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
 $flavor=if($ModPackage.Count){'-with-mods'}else{''}
-$zip = Join-Path $dist ('ZML-0.4.3-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + $flavor + '-win-x64.zip')
+$zip = Join-Path $dist ('ZML-0.5.0-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + $flavor + '-win-x64.zip')
 # An explicit whitelist prevents private config, logs, source fixtures or tests
 # from accidentally entering the redistributable package.
 $scratch = Join-Path $dist ('staging-' + [guid]::NewGuid().ToString('N'))
@@ -26,6 +26,7 @@ Copy-Item -LiteralPath (Join-Path $package 'lua\zml.lua') -Destination (Join-Pat
 New-Item -ItemType Directory (Join-Path $scratch 'docs') | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'docs\VALIDATION.md') -Destination (Join-Path $scratch 'docs')
 Copy-Item -LiteralPath (Join-Path $root 'docs\MOD_API.md') -Destination (Join-Path $scratch 'docs')
+Copy-Item -LiteralPath (Join-Path $root 'docs\RUNTIME_TOGGLE.md') -Destination (Join-Path $scratch 'docs')
 Compress-Archive -Path (Join-Path $scratch '*') -DestinationPath $zip
 $hash = Get-FileHash -LiteralPath $zip -Algorithm SHA256
 $hash.Hash + '  ' + (Split-Path $zip -Leaf) | Set-Content -Encoding ascii ($zip + '.sha256')

@@ -6,6 +6,8 @@
 #include "lua_modules.hpp"
 #include "win_util.hpp"
 #include "version_label.hpp"
+#include "zml_activation.h"
+#include "runtime_bootstrap.hpp"
 #include <MinHook.h>
 #include <chrono>
 #include <fstream>
@@ -21,6 +23,7 @@ struct Mod {
     std::string directory, state;
     ZmlHost host{};
     bool initializing = false;
+    std::shared_ptr<std::atomic_bool> active;
 };
 struct Transform { Mod* owner; std::string path; ZmlLuaTransform callback; void* userdata; };
 struct Runtime {
@@ -68,6 +71,12 @@ int register_source(void* owner,ZmlLuaSource source,void* data) {
     try {return rt->modules.add(rt->starting->info.id,source,data)?1:0;} catch(...) {return 0;}
 }
 const ZmlLuaServicesV1 lua_services{sizeof(ZmlLuaServicesV1),1,register_source};
+int is_active(void* owner) {
+    auto mod = static_cast<Mod*>(owner);
+    return mod && mod->active && mod->active->load() ? 1 : 0;
+}
+int is_mod_active(const char* id) { return rt && id && strnlen_s(id,97)<=96 && rt->services.is_enabled(id) ? 1 : 0; }
+const ZmlActivationV1 activation_services{sizeof(ZmlActivationV1),1,is_active,is_mod_active};
 void mod_log(void* owner, const char* message) {
     auto mod = static_cast<Mod*>(owner);
     rt->log(mod->info.id, message ? message : "");
@@ -114,7 +123,9 @@ void* patched_load(void* object, void* path, const void* method) {
     try {
         auto name = rt->api.string(path, 512);
         if (name.ends_with(".lua")) name.resize(name.size() - 4);
-        bool interested = false;
+        bool bootstrap = name == "Common/Utils/UIUtils";
+        bool attach = name == "UI/Panels/BattleAction/BattleActionCtrl" || name == "UI/Panels/Watch/WatchCtrl";
+        bool interested = bootstrap || attach;
         for (auto& t : rt->transforms) interested |= t.path == name;
         if (!interested) return bytes;
         ManagedRoot bytes_root(rt->api, bytes);
@@ -136,6 +147,11 @@ void* patched_load(void* object, void* path, const void* method) {
             changed = true;
             rt->log(t.owner->info.id, "Transformed " + name);
         }
+        // Loader-owned bootstrap is independent of mod-menu/keybinds being enabled.
+        if (bootstrap || attach) {
+            if (runtime_bootstrap(name,source.text)) changed=true;
+            else rt->log("runtime", "Lifecycle bootstrap source contract unavailable: " + name);
+        }
         if (!changed) return bytes;
         auto payload = pack_lua(source);
         auto replacement_text = rt->api.make_string(payload);
@@ -155,10 +171,16 @@ void* patched_load(void* object, void* path, const void* method) {
 }
 void load_mods(const std::filesystem::path& root) {
     std::vector<std::string> loaded;
-    for (auto& manifest : discover(root / L"mods")) {
-        if (!manifest.enabled) { rt->log(manifest.id, "Disabled by mod.ini"); continue; }
+    auto catalog = discover(root / L"mods");
+    std::map<std::string, bool> desired;
+    for (auto& m : catalog) desired[m.id] = m.enabled;
+    // Prewarm opted-in mods in dependency order so cached HL classes need not
+    // be recompiled later. Native code must use the activation service.
+    for (auto& manifest : resident_order(std::move(catalog))) {
+        if (!manifest.enabled) { rt->log(manifest.id, "Not resident: disabled legacy mod or unavailable optional dependencies"); continue; }
         if (!dependencies_loaded(manifest,loaded)) {rt->log(manifest.id,"Skipped: required dependency failed initialization");continue;}
         auto mod = std::make_unique<Mod>();
+        manifest.enabled = desired.at(manifest.id);
         mod->info = std::move(manifest);
         mod->directory = utf8(mod->info.directory.wstring());
         auto state = state_root() / L"mods" / path_utf8(mod->info.id);
@@ -169,6 +191,7 @@ void load_mods(const std::filesystem::path& root) {
         size_t checkpoint = rt->transforms.size();
         try {
             auto record = prepare_record(mod->info, state);
+            mod->active = record.active;
             mod->dll = LoadLibraryExW(mod->info.library.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
             if (!mod->dll) throw std::runtime_error("LoadLibraryExW failed: " + std::to_string(GetLastError()));
             auto entry = reinterpret_cast<ZmlPluginEntry>(GetProcAddress(mod->dll, "ZML_PluginV1"));
@@ -187,6 +210,7 @@ void load_mods(const std::filesystem::path& root) {
             mod->initializing = false;
             rt->starting = nullptr;
             rt->modules.remove(mod->info.id);
+            if (mod->active) mod->active->store(false);
             rt->transforms.resize(checkpoint);
             rt->log(mod->info.id, error.what());
         }
@@ -232,6 +256,7 @@ DWORD WINAPI initialize(void*) {
         std::ifstream api_stream(api_file, std::ios::binary);
         if (!api_stream) throw std::runtime_error("Cannot read loader Lua API");
         rt->services.set_api({std::istreambuf_iterator<char>(api_stream), {}});
+        rt->services.set_mod_root(root / L"mods");
         load_mods(root);
         if (MH_Initialize() != MH_OK) throw std::runtime_error("MinHook initialization failed (another loader may be present)");
         auto created = MH_CreateHook(rt->load.entry, reinterpret_cast<void*>(&patched_load), reinterpret_cast<void**>(&rt->original));
@@ -253,6 +278,7 @@ DWORD WINAPI initialize(void*) {
 }
 }
 extern "C" __declspec(dllexport) const ZmlLuaServicesV1* ZML_GetLuaServicesV1() {return &lua_services;}
+extern "C" __declspec(dllexport) const ZmlActivationV1* ZML_GetActivationV1() {return &activation_services;}
 BOOL WINAPI DllMain(HINSTANCE module, DWORD event, LPVOID) {
     if (event == DLL_PROCESS_ATTACH) {
         instance = module;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(ZML VERSION 0.4.3 LANGUAGES C CXX)
+project(ZML VERSION 0.5.0 LANGUAGES C CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "Windows x64 is required")
 endif()
@@ -30,6 +30,7 @@ add_custom_target(package ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/package/$<CONFIG>/docs"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/docs/VALIDATION.md" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/docs/VALIDATION.md"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/docs/MOD_API.md" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/docs/MOD_API.md"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/docs/RUNTIME_TOGGLE.md" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/docs/RUNTIME_TOGGLE.md"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minhook/LICENSE.txt" "${CMAKE_BINARY_DIR}/package/$<CONFIG>/MinHook-LICENSE.txt"
   DEPENDS ZMLModLoader ZMLRuntime ZMLNativeLaunch)
 enable_testing()
@@ -51,12 +52,19 @@ target_link_libraries(ServicesTests PRIVATE zml_common)
 target_compile_definitions(ServicesTests PRIVATE ZML_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(ServicesTests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/$<CONFIG>")
 add_test(NAME mod_services COMMAND ServicesTests)
+add_executable(ActivationTests tests/activation_tests.cpp)
+target_link_libraries(ActivationTests PRIVATE zml_common)
+target_compile_definitions(ActivationTests PRIVATE ZML_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(ActivationTests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/$<CONFIG>")
+add_test(NAME activation COMMAND ActivationTests)
 set(ZML_LUPA_PATH "" CACHE PATH "Optional existing Lupa installation for Lua behavioral tests")
 if(ZML_LUPA_PATH)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_test(NAME lua_behavior COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/lua_api_tests.py"
     --lupa-dir "${ZML_LUPA_PATH}" --services "$<TARGET_FILE:ServicesTests>")
   set_tests_properties(lua_behavior PROPERTIES DEPENDS mod_services TIMEOUT 30)
+  add_test(NAME activation_lua COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/activation_lua.py"
+    --lupa-dir "${ZML_LUPA_PATH}" --services "$<TARGET_FILE:ActivationTests>")
 endif()
 add_executable(InjectionFixture tests/injection_fixture.cpp)
 set_target_properties(InjectionFixture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/$<CONFIG>")

@@ -18,7 +18,7 @@ $uninstaller=Join-Path $build 'ZMLUninstall.exe'
 if($LASTEXITCODE -ne 0){throw 'Uninstaller compilation failed'}
 $scratch=Join-Path $build ('payload-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $scratch | Out-Null
 $package=Join-Path $root 'build/package/Release'
-foreach($file in @('ZMLModLoader.exe','ZMLRuntime.dll','ZMLNativeLaunch.dll','ZMLLauncherOptions.dll','README.md','MinHook-LICENSE.txt','Qt-LICENSE.txt','loader.ini.example','lua/zml.lua','docs/MOD_API.md')){
+foreach($file in @('ZMLModLoader.exe','ZMLRuntime.dll','ZMLNativeLaunch.dll','ZMLLauncherOptions.dll','README.md','MinHook-LICENSE.txt','Qt-LICENSE.txt','loader.ini.example','lua/zml.lua','docs/MOD_API.md','docs/RUNTIME_TOGGLE.md')){
     $dest=Join-Path $scratch $file; New-Item -ItemType Directory -Force (Split-Path $dest -Parent) | Out-Null
     Copy-Item -LiteralPath (Join-Path $package $file) -Destination $dest
 }
@@ -41,7 +41,7 @@ if(-not $SkipTests){
     if($LASTEXITCODE -ne 0){throw 'Installer tests failed'}
 }
 $dist=Join-Path $root 'dist';New-Item -ItemType Directory -Force $dist | Out-Null
-$release=Join-Path $dist ('ZMLSetup-0.1.17-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-win-x64.exe')
+$release=Join-Path $dist ('ZMLSetup-0.5.0-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-win-x64.exe')
 Copy-Item -LiteralPath $setup -Destination $release
 $sha=[Security.Cryptography.SHA256]::Create()
 try {$hash=[BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($release))).Replace('-','')}finally{$sha.Dispose()}

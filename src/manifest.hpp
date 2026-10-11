@@ -7,6 +7,7 @@ struct Manifest {
     std::string id, title;
     std::filesystem::path directory, library;
     bool enabled = true;
+    bool runtime_toggle = false; // Explicit resident-code lifecycle contract.
     std::string version, description, authors;
     std::vector<std::string> tags;
     std::vector<std::string> depends;
@@ -19,5 +20,7 @@ Manifest read_manifest(const std::filesystem::path& file);
 std::vector<Manifest> discover(const std::filesystem::path& root);
 // Stable dependency-first order; disabled consumers impose no requirements.
 std::vector<Manifest> dependency_order(std::vector<Manifest> mods);
+// Add only dependency-complete optional residents; skip missing/cyclic opt-ins.
+std::vector<Manifest> resident_order(std::vector<Manifest> mods);
 bool dependencies_loaded(const Manifest&, const std::vector<std::string>& loaded);
 }

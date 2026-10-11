@@ -55,7 +55,7 @@ namespace ZmlSetup {
                         if(line.StartsWith("[") && line.EndsWith("]")) { section=line.Substring(1,line.Length-2); if(section!="mod") throw new IOException("未知 manifest 节"); continue; }
                         var at=line.IndexOf('='); if(section!="mod" || at<0) throw new IOException("manifest 格式错误");
                         var key=line.Substring(0,at).Trim();
-                        if(!new[]{"id","name","library","enabled","api","version","description","authors","tags","icon","config","config_entry","config_menu","depends"}.Contains(key)) throw new IOException("未知 manifest 字段："+key);
+                        if(!new[]{"id","name","library","enabled","api","version","description","authors","tags","icon","config","config_entry","config_menu","depends","runtime_toggle"}.Contains(key)) throw new IOException("未知 manifest 字段："+key);
                         dict.Add(key,line.Substring(at+1).Trim());
                     }
                     Func<string,string> get=k=>dict.ContainsKey(k)?dict[k]:"";
@@ -64,6 +64,7 @@ namespace ZmlSetup {
                     if(get("api")!="1") throw new IOException("不支持的模组 API");
                     if(get("enabled")!="true" && get("enabled")!="false") throw new IOException("enabled 必须为 true/false");
                     row.enabled=get("enabled")=="true";
+                    if(dict.ContainsKey("runtime_toggle") && get("runtime_toggle")!="true" && get("runtime_toggle")!="false") throw new IOException("runtime_toggle 必须为 true/false");
                     if(dict.ContainsKey("depends")) {
                         var deps=get("depends").Split(',').Select(x=>x.Trim()).ToArray();
                         if(deps.Length>32 || deps.Any(x=>!ValidId(x) || x==row.id) || deps.Distinct().Count()!=deps.Length) throw new IOException("依赖声明无效");
@@ -210,7 +211,7 @@ namespace ZmlSetup {
         }
         public object CheckUpdate(string releasesUrl = null) {
             lock(gate) {
-                const string currentVersion = "0.4.3";
+                const string currentVersion = "0.5.0";
                 string url = string.IsNullOrEmpty(releasesUrl) ? "https://api.github.com/repos/sakevel/Endfield-ModLoader/releases/latest" : releasesUrl;
                 string json = null;
                 if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) {

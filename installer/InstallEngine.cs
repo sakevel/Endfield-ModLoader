@@ -194,7 +194,7 @@ namespace ZmlSetup {
             if(upgradeBridge) {
                 var adapter="ZML\\ZMLNativeLaunch.dll";
                 if(Util.HashFile(Util.Under(state.Root,adapter))!=Util.Hash(payload["ZMLNativeLaunch.dll"])) edits[adapter]=payload["ZMLNativeLaunch.dll"];
-                foreach(var name in new[]{"ZMLUninstall.exe","ZMLLauncherOptions.dll","Qt-LICENSE.txt","ZMLRuntime.dll","ZMLModLoader.exe","lua\\zml.lua"}) {
+                foreach(var name in new[]{"ZMLUninstall.exe","ZMLLauncherOptions.dll","Qt-LICENSE.txt","ZMLRuntime.dll","ZMLModLoader.exe","lua\\zml.lua","docs\\RUNTIME_TOGGLE.md"}) {
                     if(payload.ContainsKey(name) && Util.HashFile(Util.Under(state.Root,"ZML\\"+name))!=Util.Hash(payload[name])) edits["ZML\\"+name]=payload[name];
                 }
             }

@@ -82,10 +82,21 @@ python tests/installer_web_tests.py --start build/installer/InstallerTests.exe b
 3. **模组热修补**：
    - 模组声明的 Lua 变换能在游戏加载阶段正常生效。
    - 修改模组配置后能在游戏内正常热重载。
+4. **运行时启停**：
+   - 在启动器中切换模组开关，游戏内可在不重启的情况下应用生效。
+   - 依赖项与主模组遵循正确的启停拓扑顺序。
 
-## 2026-10-08：v0.4.1 自动恢复面板端口
+---
 
-- Release 构建通过；`ctest --test-dir build -C Release --output-on-failure -E '^installer$'`：6/6 通过。
-- `tools/build-installer.ps1 -SkipFrameworkBuild`：136 项检查通过，包含空闲端口零写入、占用端口自动替换、Windows 保留端口的真实 `AccessDenied` 恢复、持续独占绑定、认证请求与错误 token 拒绝、登记地址/校验一致、重启复用、锁定凭据时字节级回滚、拒绝外部修改，以及换端口后卸载恢复。
-- `python tests/installer_web_tests.py --start build/installer/InstallerTests.exe build/installer/payload.zip build/tests/Release/InjectionFixture.exe`：13 项 headless Chromium 场景通过，零页面错误。
-- 安装/回滚/卸载与浏览器验证均使用本次测试创建的独立副本和自有进程；未关闭真实启动器或游戏，未修改系统端口保留设置，未操作桌面 GUI。真实 Qt 启动器未在本次重开验收。
+### 3. 运行时启停测试
+
+- **ActivationTests (`tests/activation_tests.cpp`)**：
+  - 模组运行状态无锁查询接口验证。
+  - 常驻模组拓扑排序与可选包依赖隔离。
+  - 活动状态提交、重入保护与原子变更。
+
+- **Lua 运行时生命周期测试 (`tests/activation_lua.py`)**：
+  - Lua 主线程生命周期回调调度与状态同步。
+  - 安全点检查（`prepare`）推迟与重试机制。
+  - 依赖关系反向停用与正向启动验证。
+

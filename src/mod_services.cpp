@@ -50,6 +50,8 @@ std::string registry(const std::vector<ModRecord>& records) {
     for (auto& r : records) {
         auto& m = r.info;
         out += "{id=" + lua_quote(m.id) + ",name=" + lua_quote(m.title) + ",version=" + lua_quote(m.version) +
+            ",enabled=" + (r.active && r.active->load() ? "true" : "false") +
+            ",runtime_toggle=" + (m.runtime_toggle ? "true" : "false") +
             ",description=" + lua_quote(m.description) + ",authors=" + lua_quote(m.authors) +
             ",icon=" + lua_quote(r.icon_base64.empty() ? "" : "png") + ",config_menu=" + lua_quote(m.config_menu) +
             ",has_entry=" + (m.config_menu == "custom" ? "true" : "false") + ",tags={";
@@ -184,6 +186,7 @@ ConfigDefinition read_config(const std::filesystem::path& file) {
 }
 ModRecord prepare_record(const Manifest& m, const std::filesystem::path& state) {
     ModRecord r; r.info = m; r.info.config_menu = config_menu(m); r.state = state; r.config = read_config(m.config);
+    r.active = std::make_shared<std::atomic_bool>(m.enabled);
     for (auto& f : r.config.fields) r.values[f.key] = f.initial;
     if (!m.config_entry.empty()) {
         r.entry_source = read(m.config_entry, 128 * 1024);
@@ -223,6 +226,7 @@ void ModServices::set_api(std::string source) {
     if (at == source.npos || source.find(token, at + token.size()) != source.npos) throw std::runtime_error("Lua API registry token mismatch");
     std::lock_guard lock(mutex_); api_source_ = std::move(source);
 }
+void ModServices::set_mod_root(std::filesystem::path root) {std::lock_guard lock(mutex_);mod_root_=std::move(root);}
 void ModServices::publish(ModRecord record) {
     record.info.config_menu = config_menu(record.info);
     if ((record.info.config_menu == "custom") != !record.entry_source.empty()) throw std::runtime_error("Config entry/menu mismatch");
@@ -232,10 +236,48 @@ void ModServices::publish(ModRecord record) {
     try { registry(records_); } catch (...) { records_.pop_back(); throw; }
 }
 std::string ModServices::registry_lua() const { std::lock_guard lock(mutex_); return registry(records_); }
+bool ModServices::is_enabled(std::string_view id) const {
+    std::lock_guard lock(mutex_);
+    for (auto& r : records_) if (r.info.id == id) return r.active->load();
+    return false;
+}
 std::string ModServices::module(std::string_view path) {
     std::lock_guard lock(mutex_);
     try {
         if (path.size() > 4096) throw std::runtime_error("Request too large");
+        if (path == "ZML/Registry") return "return {ok=true,mods=" + registry(records_) + "}";
+        if (path == "ZML/Activation/Desired" || path.starts_with("ZML/Activation/Commit/")) {
+            if(!mod_root_.empty() && std::filesystem::exists(mod_root_)) {
+                // Newly installed/initialization-failed DLLs are not resident.
+                for(auto& disk : discover(mod_root_)) if(disk.enabled &&
+                    std::none_of(records_.begin(),records_.end(),[&](auto& r){return r.info.id==disk.id;}))
+                    throw std::runtime_error("New or unavailable mod: game restart required: " + disk.id);
+            }
+            std::string mask, states = "{";
+            std::map<std::string, bool> desired;
+            for (auto& r : records_) {
+                auto disk = read_manifest(r.info.directory / L"mod.ini");
+                if (disk.id != r.info.id || disk.library != r.info.library || disk.version != r.info.version ||
+                    disk.runtime_toggle != r.info.runtime_toggle || disk.depends != r.info.depends ||
+                    disk.title != r.info.title || disk.description != r.info.description || disk.authors != r.info.authors ||
+                    disk.tags != r.info.tags || disk.icon != r.info.icon || disk.config != r.info.config ||
+                    disk.config_entry != r.info.config_entry || disk.config_menu != r.info.config_menu)
+                    throw std::runtime_error("Mod package changed: game restart required");
+                if (disk.enabled != r.active->load() && !r.info.runtime_toggle)
+                    throw std::runtime_error("Mod lacks runtime lifecycle: " + disk.id);
+                desired.emplace(disk.id, disk.enabled);
+                mask += disk.enabled ? '1' : '0';
+                states += "[" + lua_quote(disk.id) + "]=" + (disk.enabled ? "true" : "false") + ",";
+            }
+            for (auto& r : records_) if (desired.at(r.info.id)) for (auto& dep : r.info.depends)
+                if (!desired.contains(dep) || !desired.at(dep)) throw std::runtime_error("Required dependency inactive: " + r.info.id + " -> " + dep);
+            if (path.starts_with("ZML/Activation/Commit/")) {
+                if (path.substr(22) != mask) throw std::runtime_error("Activation plan changed; retry");
+                // All validation completed before publishing ANY state.
+                for (auto& r : records_) r.active->store(desired.at(r.info.id));
+            }
+            return "return {ok=true,mask=" + lua_quote(mask) + ",states=" + states + "}}";
+        }
         if (path == "ZML/Api") {
             if (api_source_.empty()) throw std::runtime_error("Loader Lua API unavailable");
             auto source = api_source_; const std::string token = "__ZML_REGISTRY__";

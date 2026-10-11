@@ -125,3 +125,7 @@ default=5
 1. 在仓库中使用 `tools/package.ps1` 打包为标准 ZIP 分发包；
 2. 推送版本 Tag 触发 GitHub Actions，工作流将自动构建构件、发布 Release，并向 [Endfield-ModIndex](https://github.com/sakevel/Endfield-ModIndex) 发起 PR 收录；
 3. PR 合并后，所有用户即可在启动器的「获取模组」列表中一键下载安装。
+
+## 运行时启停
+
+ZML 0.5.0 支持可选的 `runtime_toggle=true` 契约，提供原生活动查询接口与 Lua 生命周期事件。模组需实现停用时的状态清理与启用时的恢复逻辑。详见 [运行时启停契约](RUNTIME_TOGGLE.md)。
